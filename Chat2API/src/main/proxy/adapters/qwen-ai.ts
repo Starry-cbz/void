@@ -338,6 +338,8 @@ export class QwenAiAdapter {
 
     const messages = request.messages
 
+    const forcedChatId = typeof request.chatId === 'string' ? request.chatId.trim() : ''
+
     let chatId = ''
     let parentId: string | null = null
     let isContinuation = false
@@ -371,10 +373,16 @@ export class QwenAiAdapter {
       console.log(`[QwenAI] First turn dialogue.`)
     }
 
+    if (forcedChatId) {
+      chatId = forcedChatId
+    }
+
     if (!isContinuation) {
       // Always create a new chat if not continuing
-      chatId = await this.createChat(modelId, 'OpenAI_API_Chat')
-      console.log('[QwenAI] Created new chat:', chatId)
+      if (!chatId) {
+        chatId = await this.createChat(modelId, 'OpenAI_API_Chat')
+        console.log('[QwenAI] Created new chat:', chatId)
+      }
     }
 
     // Extract system message and user message
@@ -640,7 +648,7 @@ export class QwenAiStreamHandler {
                 }
               }
 
-              const finishReason = (this.shouldParseToolCalls && this.toolCallState.hasEmittedToolCall) ? 'tool_calls' : (delta.finish_reason || 'stop')
+              const finishReason = (this.shouldParseToolCalls && this.toolCallState.hasEmittedToolCall) ? 'tool_calls' : 'stop'
               
               const finalChunk = {
                 id: this.responseId || this.chatId,

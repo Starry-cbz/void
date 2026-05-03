@@ -18,7 +18,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: "18.20.1"
+          node-version-file: .nvmrc
           cache: npm
           cache-dependency-path: |
             package-lock.json
@@ -32,12 +32,11 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: npm ci --no-optional
+        run: npm ci
         env:
           npm_config_arch: x64
           npm_config_foreground_scripts: "true"
           npm_config_build_from_source: "false"
-          npm_config_optional: "false"
           ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
 
@@ -81,13 +80,13 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: "18.20.1"
+          node-version-file: .nvmrc
           cache: npm
           cache-dependency-path: Chat2API/package-lock.json
 
       - name: Install dependencies
         working-directory: Chat2API
-        run: npm ci --no-optional
+        run: npm ci
 
       - name: Build (win x64)
         working-directory: Chat2API

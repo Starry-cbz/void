@@ -2,19 +2,19 @@ import { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { Card, CardContent } from '@/components/ui/card'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { RequestLogList } from '@/components/logs'
+import { AppLogPanel } from '@/components/logs/AppLogPanel'
 
 export default function LogsPage() {
   const { t } = useTranslation()
   const [searchParams] = useSearchParams()
   const tabFromUrl = searchParams.get('tab')
   
-  const [, setActiveTab] = useState(tabFromUrl === 'request' ? 'request' : 'request')
+  const [activeTab, setActiveTab] = useState(tabFromUrl === 'app' ? 'app' : 'request')
   
   useEffect(() => {
-    if (tabFromUrl === 'request') {
-      setActiveTab('request')
-    }
+    setActiveTab(tabFromUrl === 'app' ? 'app' : 'request')
   }, [tabFromUrl, setActiveTab])
 
   return (
@@ -28,7 +28,18 @@ export default function LogsPage() {
 
       <Card>
         <CardContent className="pt-6">
-          <RequestLogList />
+          <Tabs value={activeTab} onValueChange={setActiveTab}>
+            <TabsList>
+              <TabsTrigger value="request">{t('logs.requestLogs')}</TabsTrigger>
+              <TabsTrigger value="app">{t('logs.appLogs')}</TabsTrigger>
+            </TabsList>
+            <TabsContent value="request">
+              <RequestLogList />
+            </TabsContent>
+            <TabsContent value="app">
+              <AppLogPanel />
+            </TabsContent>
+          </Tabs>
         </CardContent>
       </Card>
     </div>

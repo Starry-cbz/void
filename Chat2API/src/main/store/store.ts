@@ -991,9 +991,14 @@ class StoreManager {
   /**
    * Export Request Logs
    */
-  exportRequestLogs(format: 'json' | 'txt' = 'json'): string {
+  exportRequestLogs(format: 'json' | 'txt' = 'json', ids?: string[]): string {
     this.ensureInitialized()
-    const logs = this.store!.get('requestLogs') || []
+    let logs = this.store!.get('requestLogs') || []
+    if (Array.isArray(ids) && ids.length > 0) {
+      const idSet = new Set(ids)
+      logs = logs.filter((l: RequestLogEntry) => idSet.has(l.id))
+      logs.sort((a: RequestLogEntry, b: RequestLogEntry) => b.timestamp - a.timestamp)
+    }
 
     if (format === 'json') {
       return JSON.stringify(logs, null, 2)

@@ -380,7 +380,7 @@ interface RequestLogsAPI {
   getStats: () => Promise<RequestLogStats>
   getTrend: (days?: number) => Promise<RequestLogTrend[]>
   clear: () => Promise<void>
-  export: (format?: 'json' | 'txt') => Promise<string>
+  export: (arg?: 'json' | 'txt' | { format?: 'json' | 'txt'; ids?: string[] }) => Promise<string>
   onNewLog: (callback: (log: RequestLogEntry) => void) => () => void
 }
 

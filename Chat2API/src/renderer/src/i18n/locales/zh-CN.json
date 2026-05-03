@@ -562,6 +562,7 @@
     "source": "来源",
     "clearLogs": "清空",
     "exportLogs": "导出",
+    "exportSelected": "导出选中 ({{count}})",
     "filter": "筛选",
     "search": "搜索日志...",
     "clearConfirm": "清空日志",

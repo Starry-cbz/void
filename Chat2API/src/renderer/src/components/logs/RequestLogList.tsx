@@ -88,6 +88,7 @@ export function RequestLogList() {
   const [isLoading, setIsLoading] = useState(true)
   const [showClearDialog, setShowClearDialog] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const logsRef = useRef<RequestLogEntry[]>([])
   const containerRef = useRef<HTMLDivElement>(null)
   const [containerSize, setContainerSize] = useState({ width: 800, height: 400 })
@@ -156,15 +157,28 @@ export function RequestLogList() {
     return () => window.removeEventListener('resize', updateSize)
   }, [logs.length])
 
+  useEffect(() => {
+    setSelectedIds((prev) => {
+      if (prev.size === 0) return prev
+      const currentIds = new Set(logs.map((l) => l.id))
+      const next = new Set<string>()
+      for (const id of prev) {
+        if (currentIds.has(id)) next.add(id)
+      }
+      return next
+    })
+  }, [logs])
+
   const handleClearLogs = async () => {
     await window.electronAPI?.requestLogs?.clear()
     logsRef.current = []
     setLogs([])
     fetchStats()
     setShowClearDialog(false)
+    setSelectedIds(new Set())
   }
 
-  const handleExportLogs = async () => {
+  const exportLogs = async (ids?: string[]) => {
     if (!window.electronAPI?.requestLogs?.export) {
       toast({
         title: t('logs.cannotExportLogs'),
@@ -176,13 +190,16 @@ export function RequestLogList() {
 
     try {
       setIsExporting(true)
-      const content = await window.electronAPI.requestLogs.export('json')
+      const content = await window.electronAPI.requestLogs.export(
+        ids && ids.length > 0 ? { format: 'json', ids } : 'json'
+      )
       
       const blob = new Blob([content], { type: 'application/json;charset=utf-8' })
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `chat2api-request-logs-${new Date().toISOString().split('T')[0]}.json`
+      const suffix = ids && ids.length > 0 ? `selected-${ids.length}-` : ''
+      a.download = `chat2api-request-logs-${suffix}${new Date().toISOString().split('T')[0]}.json`
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)
@@ -204,14 +221,35 @@ export function RequestLogList() {
     }
   }
 
+  const handleExportAllLogs = async () => {
+    await exportLogs()
+  }
+
+  const handleExportSelectedLogs = async () => {
+    await exportLogs(Array.from(selectedIds))
+  }
+
   const handleSelectLog = useCallback((log: RequestLogEntry) => {
     setSelectedLog(log)
+  }, [])
+
+  const toggleSelected = useCallback((logId: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(logId)) {
+        next.delete(logId)
+      } else {
+        next.add(logId)
+      }
+      return next
+    })
   }, [])
 
   const RowComponent = useCallback(
     ({ index, style, logs: rowLogs, onSelectLog }: RowComponentProps<RowProps>): ReactElement | null => {
       const log = rowLogs[index]
       if (!log) return null
+      const checked = selectedIds.has(log.id)
 
       return (
         <div
@@ -220,6 +258,13 @@ export function RequestLogList() {
           onClick={() => onSelectLog(log)}
         >
           <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/30 hover:bg-muted/50 cursor-pointer transition-colors h-[68px]">
+            <input
+              type="checkbox"
+              checked={checked}
+              onChange={() => toggleSelected(log.id)}
+              onClick={(e) => e.stopPropagation()}
+              className="h-4 w-4"
+            />
             <Badge variant="outline" className={getStatusColor(log.status, log.statusCode)}>
               {log.statusCode}
             </Badge>
@@ -250,7 +295,7 @@ export function RequestLogList() {
         </div>
       )
     },
-    []
+    [selectedIds, toggleSelected]
   )
 
   const rowProps = useMemo<RowProps>(() => ({
@@ -287,11 +332,20 @@ export function RequestLogList() {
           <Button
             variant="outline"
             size="sm"
-            onClick={handleExportLogs}
+            onClick={handleExportAllLogs}
             disabled={logs.length === 0 || isExporting}
           >
             <Download className={cn("h-4 w-4 mr-2", isExporting && "animate-spin")} />
             {t('logs.exportLogs')}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleExportSelectedLogs}
+            disabled={selectedIds.size === 0 || isExporting}
+          >
+            <Download className={cn("h-4 w-4 mr-2", isExporting && "animate-spin")} />
+            {t('logs.exportSelected', { count: selectedIds.size })}
           </Button>
           <Button variant="destructive" size="sm" onClick={() => setShowClearDialog(true)}>
             {t('logs.clearLogs')}

@@ -769,8 +769,10 @@ export async function registerIpcHandlers(mainWindow: BrowserWindow | null): Pro
     storeManager.clearRequestLogs()
   })
 
-  ipcMain.handle(IpcChannels.REQUEST_LOGS_EXPORT, async (_, format?: 'json' | 'txt'): Promise<string> => {
-    return storeManager.exportRequestLogs(format)
+  ipcMain.handle(IpcChannels.REQUEST_LOGS_EXPORT, async (_, arg?: 'json' | 'txt' | { format?: 'json' | 'txt'; ids?: string[] }): Promise<string> => {
+    const format = typeof arg === 'string' ? arg : arg?.format
+    const ids = typeof arg === 'string' ? undefined : arg?.ids
+    return storeManager.exportRequestLogs(format, ids)
   })
 
   // ==================== Statistics Handlers ====================

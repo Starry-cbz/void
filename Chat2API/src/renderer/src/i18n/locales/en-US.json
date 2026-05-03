@@ -562,6 +562,7 @@
     "source": "Source",
     "clearLogs": "Clear",
     "exportLogs": "Export",
+    "exportSelected": "Export Selected ({{count}})",
     "filter": "Filter",
     "search": "Search logs...",
     "clearConfirm": "Clear Logs",

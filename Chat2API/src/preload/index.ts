@@ -367,8 +367,8 @@ const requestLogsAPI = {
   clear: (): Promise<void> => 
     ipcRenderer.invoke(IpcChannels.REQUEST_LOGS_CLEAR),
   
-  export: (format?: 'json' | 'txt'): Promise<string> => 
-    ipcRenderer.invoke(IpcChannels.REQUEST_LOGS_EXPORT, format),
+  export: (arg?: 'json' | 'txt' | { format?: 'json' | 'txt'; ids?: string[] }): Promise<string> => 
+    ipcRenderer.invoke(IpcChannels.REQUEST_LOGS_EXPORT, arg),
 
   onNewLog: (callback: (log: RequestLogEntry) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, log: RequestLogEntry) => callback(log)

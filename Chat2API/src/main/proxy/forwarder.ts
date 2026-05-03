@@ -1029,7 +1029,8 @@ CRITICAL RULES:
       const config = storeManager.getConfig()
       const maxRetries = config.retryCount
       let attempt = 0
-      let forcedChatId: string | undefined
+      let forcedChatId: string | undefined = request.chatId || undefined
+      const forcedParentId: string | null | undefined = request.parentId
 
       const deleteChatCallback = shouldDeleteSession()
         ? async (cid: string) => {
@@ -1063,6 +1064,7 @@ CRITICAL RULES:
             temperature: request.temperature,
             enable_thinking: !!request.reasoning_effort,
             chatId: forcedChatId,
+            parentId: forcedParentId,
           })
 
           if (response.status >= 400) {
@@ -1170,6 +1172,7 @@ CRITICAL RULES:
           temperature: request.temperature,
           enable_thinking: !!request.reasoning_effort,
           chatId: forcedChatId,
+          parentId: forcedParentId,
         })
 
         const latency = Date.now() - startTime

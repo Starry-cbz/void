@@ -69,6 +69,7 @@ interface ChatCompletionRequest {
   enable_thinking?: boolean
   thinking_budget?: number
   chatId?: string
+  parentId?: string | null
 }
 
 function uuid(): string {
@@ -339,6 +340,12 @@ export class QwenAiAdapter {
     const messages = request.messages
 
     const forcedChatId = typeof request.chatId === 'string' ? request.chatId.trim() : ''
+    const forcedParentId =
+      typeof request.parentId === 'string'
+        ? (request.parentId.trim() ? request.parentId.trim() : null)
+        : request.parentId === null
+          ? null
+          : undefined
 
     let chatId = ''
     let parentId: string | null = null
@@ -375,6 +382,16 @@ export class QwenAiAdapter {
 
     if (forcedChatId) {
       chatId = forcedChatId
+      isContinuation = true
+    }
+
+    if (forcedParentId !== undefined) {
+      parentId = forcedParentId
+      isContinuation = true
+    }
+
+    if (isContinuation && !chatId) {
+      isContinuation = false
     }
 
     if (!isContinuation) {

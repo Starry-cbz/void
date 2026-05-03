@@ -66,6 +66,8 @@ export interface ChatCompletionRequest {
   /** Original model name before mapping (used for feature detection like web search, thinking mode) */
   originalModel?: string
   messages: ChatMessage[]
+  chatId?: string
+  parentId?: string | null
   temperature?: number
   top_p?: number
   n?: number

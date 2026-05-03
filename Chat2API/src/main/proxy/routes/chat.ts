@@ -20,6 +20,7 @@ import {
 } from '../utils/toolFormatConverter'
 import { QwenAdapter } from '../adapters/qwen'
 import { QwenAiAdapter } from '../adapters/qwen-ai'
+import { qwenAiSessionService } from '../services/qwenAiSessionService'
 
 const router = new Router({ prefix: '/v1/chat' })
 
@@ -193,86 +194,457 @@ router.post('/completions', async (ctx: Context) => {
     console.log('[Chat] Deep research enabled via X-Deep-Research header')
   }
 
-  const config = storeManager.getConfig()
-  const preferredProviderId = modelMapper.getPreferredProvider(request.model)
-  const preferredAccountId = modelMapper.getPreferredAccount(request.model)
+  const rawSessionKey = typeof ctx.headers['x-chat2api-session'] === 'string' ? ctx.headers['x-chat2api-session'].trim() : ''
+  const rawCheckpointId = typeof ctx.headers['x-chat2api-checkpoint'] === 'string' ? ctx.headers['x-chat2api-checkpoint'].trim() : ''
+  const sessionKey = rawSessionKey || undefined
+  const checkpointId = rawCheckpointId || undefined
 
-  const selection = loadBalancer.selectAccount(
-    request.model,
-    config.loadBalanceStrategy,
-    preferredProviderId,
-    preferredAccountId
-  )
+  const handleRequest = async () => {
+    const config = storeManager.getConfig()
+    let preferredProviderId = modelMapper.getPreferredProvider(request.model)
+    let preferredAccountId = modelMapper.getPreferredAccount(request.model)
 
-  if (!selection) {
-    ctx.status = 503
-    ctx.body = {
-      error: {
-        message: `No available account for model: ${request.model}`,
-        type: 'service_unavailable_error',
-        param: null,
-        code: 'no_available_account',
-      },
+    if (sessionKey) {
+      preferredProviderId = preferredProviderId ?? 'qwen-ai'
+      const existing = qwenAiSessionService.getSession(sessionKey)
+      if (existing?.accountId) {
+        preferredAccountId = existing.accountId
+      }
     }
-    return
-  }
 
-  const { account, provider, actualModel } = selection
-
-  const context: ProxyContext = {
-    requestId,
-    providerId: provider.id,
-    accountId: account.id,
-    model: request.model,
-    actualModel,
-    startTime,
-    isStream: request.stream || false,
-    clientIP,
-  }
-
-  proxyStatusManager.recordRequestStart(request.model, provider.id, account.id)
-
-  try {
-    const result = await requestForwarder.forwardChatCompletion(
-      request,
-      account,
-      provider,
-      actualModel,
-      context
+    const selection = loadBalancer.selectAccount(
+      request.model,
+      config.loadBalanceStrategy,
+      preferredProviderId,
+      preferredAccountId
     )
 
-    const latency = Date.now() - startTime
-
-    if (!result.success) {
-      proxyStatusManager.recordRequestFailure(latency)
-
-      if (result.status && result.status >= 400 && result.status !== 429) {
-        loadBalancer.markAccountFailed(account.id)
-      }
-
-      ctx.status = result.status || 500
+    if (!selection) {
+      ctx.status = 503
       ctx.body = {
         error: {
-          message: result.error || 'Request failed',
-          type: 'api_error',
+          message: `No available account for model: ${request.model}`,
+          type: 'service_unavailable_error',
+          param: null,
+          code: 'no_available_account',
+        },
+      }
+      return
+    }
+
+    const { account, provider, actualModel } = selection
+
+    let forwardRequest: ChatCompletionRequest = request
+    let sessionCheckpointId: string | undefined
+
+    if (sessionKey && QwenAiAdapter.isQwenAiProvider(provider)) {
+      const existing = qwenAiSessionService.getSession(sessionKey)
+      if (!existing) {
+        qwenAiSessionService.ensureSession(sessionKey, { accountId: account.id, chatId: '', currentParentId: null })
+      } else if (existing.accountId !== account.id) {
+        qwenAiSessionService.resetSession(sessionKey, { accountId: account.id, chatId: '', currentParentId: null })
+      }
+
+      const session = qwenAiSessionService.getSession(sessionKey)!
+      const resolvedFromCheckpoint = checkpointId ? qwenAiSessionService.resolveCheckpoint(sessionKey, checkpointId) : undefined
+      const parentIdToUse = resolvedFromCheckpoint ?? session.currentParentId
+      const chatIdToUse = session.chatId ? session.chatId : undefined
+
+      forwardRequest = {
+        ...request,
+        chatId: chatIdToUse,
+        parentId: parentIdToUse ?? null,
+      }
+    }
+
+    const context: ProxyContext = {
+      requestId,
+      providerId: provider.id,
+      accountId: account.id,
+      model: request.model,
+      actualModel,
+      startTime,
+      isStream: request.stream || false,
+      clientIP,
+    }
+
+    proxyStatusManager.recordRequestStart(request.model, provider.id, account.id)
+
+    try {
+      const result = await requestForwarder.forwardChatCompletion(
+        forwardRequest,
+        account,
+        provider,
+        actualModel,
+        context
+      )
+
+      const latency = Date.now() - startTime
+
+      if (!result.success) {
+        proxyStatusManager.recordRequestFailure(latency)
+
+        if (result.status && result.status >= 400 && result.status !== 429) {
+          loadBalancer.markAccountFailed(account.id)
+        }
+
+        ctx.status = result.status || 500
+        ctx.body = {
+          error: {
+            message: result.error || 'Request failed',
+            type: 'api_error',
+            param: null,
+            code: null,
+          },
+        }
+
+        storeManager.addLog('error', `Request failed: ${result.error}`, {
+          requestId,
+          providerId: provider.id,
+          accountId: account.id,
+          model: request.model,
+          latency,
+        })
+
+        const userInput = extractUserInput(request.messages)
+        const errorResponseBody = JSON.stringify({
+          error: {
+            message: result.error || 'Request failed',
+            type: 'api_error',
+            param: null,
+            code: null,
+          },
+        })
+        storeManager.addRequestLog({
+          timestamp: startTime,
+          status: 'error',
+          statusCode: result.status || 500,
+          method: 'POST',
+          url: '/v1/chat/completions',
+          model: request.model,
+          actualModel,
+          providerId: provider.id,
+          providerName: provider.name,
+          accountId: account.id,
+          accountName: account.name,
+          requestBody: JSON.stringify(request),
+          userInput,
+          webSearch: request.web_search,
+          reasoningEffort: request.reasoning_effort,
+          responseStatus: result.status || 500,
+          responseBody: errorResponseBody,
+          latency,
+          isStream: request.stream || false,
+          errorMessage: result.error,
+        })
+
+        storeManager.recordRequestInStats(false, latency, request.model, provider.id, account.id)
+
+        return
+      }
+
+      if (sessionKey && QwenAiAdapter.isQwenAiProvider(provider)) {
+        const session = qwenAiSessionService.getSession(sessionKey)
+        if (session) {
+          sessionCheckpointId = qwenAiSessionService.createPendingCheckpoint(sessionKey)
+          ctx.set('X-Chat2API-Checkpoint', sessionCheckpointId)
+
+          if (result.chatId) {
+            qwenAiSessionService.setChatId(sessionKey, result.chatId)
+            qwenAiSessionService.setAccountId(sessionKey, account.id)
+          }
+        }
+      }
+
+      loadBalancer.clearAccountFailure(account.id)
+
+      proxyStatusManager.recordRequestSuccess(latency)
+
+      storeManager.updateAccount(account.id, {
+        lastUsed: Date.now(),
+        requestCount: (account.requestCount || 0) + 1,
+        todayUsed: (account.todayUsed || 0) + 1,
+      })
+
+      storeManager.addLog('info', `Request succeeded`, {
+        requestId,
+        providerId: provider.id,
+        accountId: account.id,
+        model: request.model,
+        actualModel,
+        latency,
+        isStream: request.stream,
+      })
+
+      const userInput = extractUserInput(request.messages)
+      const responseBodyForLog = !request.stream && result.body
+        ? JSON.stringify(result.body)
+        : undefined
+
+      let logEntryId: string | undefined
+
+      if (!request.stream) {
+        const logEntry = storeManager.addRequestLog({
+          timestamp: startTime,
+          status: 'success',
+          statusCode: 200,
+          method: 'POST',
+          url: '/v1/chat/completions',
+          model: request.model,
+          actualModel,
+          providerId: provider.id,
+          providerName: provider.name,
+          accountId: account.id,
+          accountName: account.name,
+          requestBody: JSON.stringify(request),
+          userInput,
+          webSearch: request.web_search,
+          reasoningEffort: request.reasoning_effort,
+          responseStatus: 200,
+          responseBody: responseBodyForLog,
+          latency,
+          isStream: false,
+        })
+        logEntryId = logEntry.id
+      } else {
+        const logEntry = storeManager.addRequestLog({
+          timestamp: startTime,
+          status: 'success',
+          statusCode: 200,
+          method: 'POST',
+          url: '/v1/chat/completions',
+          model: request.model,
+          actualModel,
+          providerId: provider.id,
+          providerName: provider.name,
+          accountId: account.id,
+          accountName: account.name,
+          requestBody: JSON.stringify(request),
+          userInput,
+          webSearch: request.web_search,
+          reasoningEffort: request.reasoning_effort,
+          responseStatus: 200,
+          latency,
+          isStream: true,
+        })
+        logEntryId = logEntry.id
+      }
+
+      storeManager.recordRequestInStats(true, latency, request.model, provider.id, account.id)
+
+      if (request.stream === true && result.stream) {
+        ctx.set('Content-Type', 'text/event-stream')
+        ctx.set('Cache-Control', 'no-cache')
+        ctx.set('Connection', 'keep-alive')
+        ctx.set('X-Accel-Buffering', 'no')
+
+        const wrapperStream = new PassThrough()
+        let collectedContent = ''
+
+        result.stream.once('error', (err: Error) => {
+          console.error('[Chat] Stream error:', err.message)
+
+          const errorEvent = {
+            id: requestId,
+            object: 'chat.completion.chunk',
+            created: Math.floor(Date.now() / 1000),
+            model: actualModel,
+            choices: [{
+              index: 0,
+              delta: {
+                content: `\n\n[Error: ${err.message}]`,
+              },
+              finish_reason: 'stop',
+            }],
+          }
+
+          wrapperStream.write(`data: ${JSON.stringify(errorEvent)}\n\n`)
+          wrapperStream.write('data: [DONE]\n\n')
+          wrapperStream.end()
+
+          storeManager.addLog('error', `Stream error: ${err.message}`, {
+            requestId,
+            providerId: provider.id,
+            accountId: account.id,
+            model: request.model,
+          })
+        })
+
+        const finalizeQwenAiSession = () => {
+          if (!sessionKey || !sessionCheckpointId) return
+          if (!QwenAiAdapter.isQwenAiProvider(provider) || !result.chatId) return
+          const handler = result.stream ? (result.stream as any).qwenAiHandler : null
+          const parentId = (handler ? handler.getResponseId() : null) || result.parentId
+          if (!parentId) return
+          qwenAiSessionService.setChatId(sessionKey, result.chatId)
+          qwenAiSessionService.finalizeCheckpoint(sessionKey, sessionCheckpointId, parentId)
+        }
+
+        if (result.skipTransform) {
+          result.stream.on('data', (chunk: Buffer) => {
+            collectedContent += chunk.toString()
+          })
+
+          result.stream.pipe(wrapperStream, { end: false })
+
+          result.stream.once('end', () => {
+            const contextMessages = result.contextMessages || request.messages
+            if (QwenAdapter.isQwenProvider(provider) && result.sessionId && result.reqId) {
+              const parsedMessage = extractContentFromSSE(collectedContent)
+              if (parsedMessage.content || parsedMessage.tool_calls) {
+                QwenAdapter.recordNextContextMap(contextMessages, parsedMessage, result.sessionId, result.reqId)
+              }
+            }
+            
+            const handler = result.stream ? (result.stream as any).qwenAiHandler : null
+            const parentId = (handler ? handler.getResponseId() : null) || result.parentId
+            if (QwenAiAdapter.isQwenAiProvider(provider) && result.chatId && parentId) {
+              const parsedMessage = extractContentFromSSE(collectedContent)
+              if (parsedMessage.content || parsedMessage.tool_calls) {
+                QwenAiAdapter.recordNextContextMap(contextMessages, parsedMessage, result.chatId, parentId)
+              }
+            }
+
+            finalizeQwenAiSession()
+
+            if (logEntryId) {
+              storeManager.updateRequestLog(logEntryId, {
+                responseBody: collectedContent || undefined,
+              })
+            }
+            wrapperStream.end()
+          })
+        } else {
+          const transformStream = streamHandler.createTransformStream(
+            actualModel,
+            requestId,
+            () => {
+              storeManager.addLog('debug', `Stream response completed`, { requestId })
+            }
+          )
+
+          transformStream.on('data', (chunk: Buffer) => {
+            collectedContent += chunk.toString()
+          })
+
+          result.stream.pipe(transformStream)
+          transformStream.pipe(wrapperStream, { end: false })
+
+          transformStream.once('end', () => {
+            const contextMessages = result.contextMessages || request.messages
+            if (QwenAdapter.isQwenProvider(provider) && result.sessionId && result.reqId) {
+              const parsedMessage = extractContentFromSSE(collectedContent)
+              if (parsedMessage.content || parsedMessage.tool_calls) {
+                QwenAdapter.recordNextContextMap(contextMessages, parsedMessage, result.sessionId, result.reqId)
+              }
+            }
+
+            const handler = result.stream ? (result.stream as any).qwenAiHandler : null
+            const parentId = (handler ? handler.getResponseId() : null) || result.parentId
+            if (QwenAiAdapter.isQwenAiProvider(provider) && result.chatId && parentId) {
+              const parsedMessage = extractContentFromSSE(collectedContent)
+              if (parsedMessage.content || parsedMessage.tool_calls) {
+                QwenAiAdapter.recordNextContextMap(contextMessages, parsedMessage, result.chatId, parentId)
+              }
+            }
+
+            finalizeQwenAiSession()
+
+            if (logEntryId) {
+              storeManager.updateRequestLog(logEntryId, {
+                responseBody: collectedContent || undefined,
+              })
+            }
+            wrapperStream.end()
+          })
+        }
+
+        ctx.body = wrapperStream
+      } else {
+        ctx.set('Content-Type', 'application/json')
+
+        if (result.body) {
+          const contextMessages = result.contextMessages || request.messages
+          if (QwenAdapter.isQwenProvider(provider) && result.sessionId && result.reqId) {
+            const assistantMsg = result.body.choices?.[0]?.message || { content: '' }
+            if (assistantMsg.content || assistantMsg.tool_calls) {
+               QwenAdapter.recordNextContextMap(contextMessages, assistantMsg, result.sessionId, result.reqId)
+            }
+          }
+          
+          const handler = result.stream ? (result.stream as any).qwenAiHandler : null
+          const parentId = (handler ? handler.getResponseId() : null) || result.parentId
+          if (QwenAiAdapter.isQwenAiProvider(provider) && result.chatId && parentId) {
+            const assistantMsg = result.body.choices?.[0]?.message || { content: '' }
+            if (assistantMsg.content || assistantMsg.tool_calls) {
+               QwenAiAdapter.recordNextContextMap(contextMessages, assistantMsg, result.chatId, parentId)
+            }
+          }
+
+          if (sessionKey && sessionCheckpointId && QwenAiAdapter.isQwenAiProvider(provider) && result.chatId && result.parentId) {
+            qwenAiSessionService.setChatId(sessionKey, result.chatId)
+            qwenAiSessionService.finalizeCheckpoint(sessionKey, sessionCheckpointId, result.parentId)
+          }
+
+          if (isAnthropicToolFormat(request.tool_format)) {
+            ctx.body = transformResponseToAnthropic(result.body)
+            console.log('[Chat] Transformed response to Anthropic tool format')
+          } else {
+            ctx.body = result.body
+          }
+        } else {
+          ctx.body = {
+            id: requestId,
+            object: 'chat.completion',
+            created: Math.floor(Date.now() / 1000),
+            model: actualModel,
+            choices: [{
+              index: 0,
+              message: {
+                role: 'assistant',
+                content: '',
+              },
+              finish_reason: 'stop',
+            }],
+            usage: {
+              prompt_tokens: 0,
+              completion_tokens: 0,
+              total_tokens: 0,
+            },
+          }
+        }
+      }
+    } catch (error) {
+      const latency = Date.now() - startTime
+      proxyStatusManager.recordRequestFailure(latency)
+
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+      const errorStack = error instanceof Error ? error.stack : undefined
+
+      ctx.status = 500
+      ctx.body = {
+        error: {
+          message: errorMessage,
+          type: 'internal_error',
           param: null,
           code: null,
         },
       }
 
-      storeManager.addLog('error', `Request failed: ${result.error}`, {
+      storeManager.addLog('error', `Request exception: ${errorMessage}`, {
         requestId,
         providerId: provider.id,
         accountId: account.id,
         model: request.model,
         latency,
+        error: errorMessage,
       })
 
       const userInput = extractUserInput(request.messages)
-      const errorResponseBody = JSON.stringify({
+      const exceptionResponseBody = JSON.stringify({
         error: {
-          message: result.error || 'Request failed',
-          type: 'api_error',
+          message: errorMessage,
+          type: 'internal_error',
           param: null,
           code: null,
         },
@@ -280,7 +652,7 @@ router.post('/completions', async (ctx: Context) => {
       storeManager.addRequestLog({
         timestamp: startTime,
         status: 'error',
-        statusCode: result.status || 500,
+        statusCode: 500,
         method: 'POST',
         url: '/v1/chat/completions',
         model: request.model,
@@ -293,343 +665,24 @@ router.post('/completions', async (ctx: Context) => {
         userInput,
         webSearch: request.web_search,
         reasoningEffort: request.reasoning_effort,
-        responseStatus: result.status || 500,
-        responseBody: errorResponseBody,
+        responseStatus: 500,
+        responseBody: exceptionResponseBody,
         latency,
         isStream: request.stream || false,
-        errorMessage: result.error,
+        errorMessage,
+        errorStack,
       })
 
       storeManager.recordRequestInStats(false, latency, request.model, provider.id, account.id)
-
-      return
     }
-
-    loadBalancer.clearAccountFailure(account.id)
-
-    proxyStatusManager.recordRequestSuccess(latency)
-
-    storeManager.updateAccount(account.id, {
-      lastUsed: Date.now(),
-      requestCount: (account.requestCount || 0) + 1,
-      todayUsed: (account.todayUsed || 0) + 1,
-    })
-
-    storeManager.addLog('info', `Request succeeded`, {
-      requestId,
-      providerId: provider.id,
-      accountId: account.id,
-      model: request.model,
-      actualModel,
-      latency,
-      isStream: request.stream,
-    })
-
-    const userInput = extractUserInput(request.messages)
-    // Prepare response body for logging (only for non-stream requests)
-    const responseBodyForLog = !request.stream && result.body
-      ? JSON.stringify(result.body)
-      : undefined
-
-    // For streaming requests, we'll collect content and update the log later
-    let logEntryId: string | undefined
-
-    if (!request.stream) {
-      // Non-streaming: record log with response body now
-      const logEntry = storeManager.addRequestLog({
-        timestamp: startTime,
-        status: 'success',
-        statusCode: 200,
-        method: 'POST',
-        url: '/v1/chat/completions',
-        model: request.model,
-        actualModel,
-        providerId: provider.id,
-        providerName: provider.name,
-        accountId: account.id,
-        accountName: account.name,
-        requestBody: JSON.stringify(request),
-        userInput,
-        webSearch: request.web_search,
-        reasoningEffort: request.reasoning_effort,
-        responseStatus: 200,
-        responseBody: responseBodyForLog,
-        latency,
-        isStream: false,
-      })
-      logEntryId = logEntry.id
-    } else {
-      // Streaming: record log now, will update response body later
-      const logEntry = storeManager.addRequestLog({
-        timestamp: startTime,
-        status: 'success',
-        statusCode: 200,
-        method: 'POST',
-        url: '/v1/chat/completions',
-        model: request.model,
-        actualModel,
-        providerId: provider.id,
-        providerName: provider.name,
-        accountId: account.id,
-        accountName: account.name,
-        requestBody: JSON.stringify(request),
-        userInput,
-        webSearch: request.web_search,
-        reasoningEffort: request.reasoning_effort,
-        responseStatus: 200,
-        latency,
-        isStream: true,
-      })
-      logEntryId = logEntry.id
-    }
-
-    storeManager.recordRequestInStats(true, latency, request.model, provider.id, account.id)
-
-    if (request.stream === true && result.stream) {
-      ctx.set('Content-Type', 'text/event-stream')
-      ctx.set('Cache-Control', 'no-cache')
-      ctx.set('Connection', 'keep-alive')
-      ctx.set('X-Accel-Buffering', 'no')
-
-      // Create a wrapper stream to handle errors and collect content
-      const wrapperStream = new PassThrough()
-
-      // Collect stream content for logging (raw SSE output)
-      let collectedContent = ''
-
-      // Handle stream errors
-      result.stream.once('error', (err: Error) => {
-        console.error('[Chat] Stream error:', err.message)
-
-        // Send error as SSE event
-        const errorEvent = {
-          id: requestId,
-          object: 'chat.completion.chunk',
-          created: Math.floor(Date.now() / 1000),
-          model: actualModel,
-          choices: [{
-            index: 0,
-            delta: {
-              content: `\n\n[Error: ${err.message}]`,
-            },
-            finish_reason: 'stop',
-          }],
-        }
-
-        wrapperStream.write(`data: ${JSON.stringify(errorEvent)}\n\n`)
-        wrapperStream.write('data: [DONE]\n\n')
-        wrapperStream.end()
-
-        storeManager.addLog('error', `Stream error: ${err.message}`, {
-          requestId,
-          providerId: provider.id,
-          accountId: account.id,
-          model: request.model,
-        })
-      })
-
-      // Check if stream is already in correct SSE format (from adapters like Kimi, GLM, DeepSeek)
-      if (result.skipTransform) {
-        // Stream is already formatted, pipe through wrapper and collect
-        result.stream.on('data', (chunk: Buffer) => {
-          collectedContent += chunk.toString()
-        })
-
-        result.stream.pipe(wrapperStream, { end: false })
-
-        // When source stream ends normally, update log and end wrapper
-        result.stream.once('end', () => {
-          const contextMessages = result.contextMessages || request.messages
-          // Register next context map for Qwen adapter if streaming completed
-          if (QwenAdapter.isQwenProvider(provider) && result.sessionId && result.reqId) {
-            // Need to extract the final concatenated text from SSE format here or 
-            // since collectedContent holds raw SSE, we try to parse it
-            const parsedMessage = extractContentFromSSE(collectedContent)
-            if (parsedMessage.content || parsedMessage.tool_calls) {
-              QwenAdapter.recordNextContextMap(contextMessages, parsedMessage, result.sessionId, result.reqId)
-            }
-          }
-          
-          // Register next context map for QwenAI adapter
-          const handler = result.stream ? (result.stream as any).qwenAiHandler : null;
-          const parentId = (handler ? handler.getResponseId() : null) || result.parentId;
-          if (QwenAiAdapter.isQwenAiProvider(provider) && result.chatId && parentId) {
-            const parsedMessage = extractContentFromSSE(collectedContent);
-            if (parsedMessage.content || parsedMessage.tool_calls) {
-              QwenAiAdapter.recordNextContextMap(contextMessages, parsedMessage, result.chatId, parentId);
-            }
-          }
-
-          // Update log with collected response
-          if (logEntryId) {
-            storeManager.updateRequestLog(logEntryId, {
-              responseBody: collectedContent || undefined,
-            })
-          }
-          wrapperStream.end()
-        })
-      } else {
-        // Need to transform the stream
-        const transformStream = streamHandler.createTransformStream(
-          actualModel,
-          requestId,
-          () => {
-            storeManager.addLog('debug', `Stream response completed`, { requestId })
-          }
-        )
-
-        // Collect from transform stream output
-        transformStream.on('data', (chunk: Buffer) => {
-          collectedContent += chunk.toString()
-        })
-
-        result.stream.pipe(transformStream)
-        transformStream.pipe(wrapperStream, { end: false })
-
-        transformStream.once('end', () => {
-          const contextMessages = result.contextMessages || request.messages
-          // Register next context map for Qwen adapter if streaming completed
-          if (QwenAdapter.isQwenProvider(provider) && result.sessionId && result.reqId) {
-            const parsedMessage = extractContentFromSSE(collectedContent)
-            if (parsedMessage.content || parsedMessage.tool_calls) {
-              QwenAdapter.recordNextContextMap(contextMessages, parsedMessage, result.sessionId, result.reqId)
-            }
-          }
-
-          // Register next context map for QwenAI adapter
-          const handler = result.stream ? (result.stream as any).qwenAiHandler : null;
-          const parentId = (handler ? handler.getResponseId() : null) || result.parentId;
-          if (QwenAiAdapter.isQwenAiProvider(provider) && result.chatId && parentId) {
-            const parsedMessage = extractContentFromSSE(collectedContent);
-            if (parsedMessage.content || parsedMessage.tool_calls) {
-              QwenAiAdapter.recordNextContextMap(contextMessages, parsedMessage, result.chatId, parentId);
-            }
-          }
-
-          // Update log with collected response
-          if (logEntryId) {
-            storeManager.updateRequestLog(logEntryId, {
-              responseBody: collectedContent || undefined,
-            })
-          }
-          wrapperStream.end()
-        })
-      }
-
-      ctx.body = wrapperStream
-    } else {
-      ctx.set('Content-Type', 'application/json')
-
-      if (result.body) {
-        const contextMessages = result.contextMessages || request.messages
-        // Register next context map for Qwen adapter
-        if (QwenAdapter.isQwenProvider(provider) && result.sessionId && result.reqId) {
-          const assistantMsg = result.body.choices?.[0]?.message || { content: '' }
-          if (assistantMsg.content || assistantMsg.tool_calls) {
-             QwenAdapter.recordNextContextMap(contextMessages, assistantMsg, result.sessionId, result.reqId)
-          }
-        }
-        
-        // Register next context map for QwenAI adapter
-        const handler = result.stream ? (result.stream as any).qwenAiHandler : null;
-        const parentId = (handler ? handler.getResponseId() : null) || result.parentId;
-        if (QwenAiAdapter.isQwenAiProvider(provider) && result.chatId && parentId) {
-          const assistantMsg = result.body.choices?.[0]?.message || { content: '' };
-          if (assistantMsg.content || assistantMsg.tool_calls) {
-             QwenAiAdapter.recordNextContextMap(contextMessages, assistantMsg, result.chatId, parentId);
-          }
-        }
-
-        // Check if we need to transform to Anthropic format
-        if (isAnthropicToolFormat(request.tool_format)) {
-          ctx.body = transformResponseToAnthropic(result.body)
-          console.log('[Chat] Transformed response to Anthropic tool format')
-        } else {
-          ctx.body = result.body
-        }
-      } else {
-        ctx.body = {
-          id: requestId,
-          object: 'chat.completion',
-          created: Math.floor(Date.now() / 1000),
-          model: actualModel,
-          choices: [{
-            index: 0,
-            message: {
-              role: 'assistant',
-              content: '',
-            },
-            finish_reason: 'stop',
-          }],
-          usage: {
-            prompt_tokens: 0,
-            completion_tokens: 0,
-            total_tokens: 0,
-          },
-        }
-      }
-    }
-  } catch (error) {
-    const latency = Date.now() - startTime
-    proxyStatusManager.recordRequestFailure(latency)
-
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error'
-    const errorStack = error instanceof Error ? error.stack : undefined
-
-    ctx.status = 500
-    ctx.body = {
-      error: {
-        message: errorMessage,
-        type: 'internal_error',
-        param: null,
-        code: null,
-      },
-    }
-
-    storeManager.addLog('error', `Request exception: ${errorMessage}`, {
-      requestId,
-      providerId: provider.id,
-      accountId: account.id,
-      model: request.model,
-      latency,
-      error: errorMessage,
-    })
-
-    const userInput = extractUserInput(request.messages)
-    const exceptionResponseBody = JSON.stringify({
-      error: {
-        message: errorMessage,
-        type: 'internal_error',
-        param: null,
-        code: null,
-      },
-    })
-    storeManager.addRequestLog({
-      timestamp: startTime,
-      status: 'error',
-      statusCode: 500,
-      method: 'POST',
-      url: '/v1/chat/completions',
-      model: request.model,
-      actualModel,
-      providerId: provider.id,
-      providerName: provider.name,
-      accountId: account.id,
-      accountName: account.name,
-      requestBody: JSON.stringify(request),
-      userInput,
-      webSearch: request.web_search,
-      reasoningEffort: request.reasoning_effort,
-      responseStatus: 500,
-      responseBody: exceptionResponseBody,
-      latency,
-      isStream: request.stream || false,
-      errorMessage,
-      errorStack,
-    })
-
-    storeManager.recordRequestInStats(false, latency, request.model, provider.id, account.id)
   }
+
+  if (sessionKey) {
+    await qwenAiSessionService.runExclusive(sessionKey, handleRequest)
+    return
+  }
+
+  await handleRequest()
 })
 
 export default router

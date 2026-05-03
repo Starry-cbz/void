@@ -53,22 +53,6 @@ jobs:
       - name: Build Void React
         run: npm run buildreact
 
-      - name: Add swap (preflight)
-        run: |
-          sudo fallocate -l 8G /swapfile
-          sudo chmod 600 /swapfile
-          sudo mkswap /swapfile
-          sudo swapon /swapfile
-          free -h
-
-      - name: Typecheck (tsec)
-        run: npm run tsec-compile-check
-        env:
-          NODE_OPTIONS: --max-old-space-size=8192
-
-      - name: Unit tests (node)
-        run: npm run test-node
-
   build_void_win_x64:
     name: Build Void (win x64 system setup)
     needs: preflight

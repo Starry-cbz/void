@@ -96,6 +96,9 @@ jobs:
       - name: Build Void (win32-x64 fast)
         run: npm run gulp "vscode-win32-x64"
 
+      - name: Prepare inno updater (tools)
+        run: npm run gulp "vscode-win32-x64-inno-updater"
+
       - name: Build Void installer (system)
         run: npm run gulp "vscode-win32-x64-system-setup"
 

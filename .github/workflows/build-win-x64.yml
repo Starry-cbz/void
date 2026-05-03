@@ -4,8 +4,53 @@ on:
   workflow_dispatch:
 
 jobs:
+  preflight:
+    name: Preflight (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout (main)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            build/package-lock.json
+            extensions/package-lock.json
+            remote/package-lock.json
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: npm ci
+        env:
+          npm_config_foreground_scripts: "true"
+          npm_config_build_from_source: "false"
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+
+      - name: Build Void React
+        run: npm run buildreact
+
+      - name: Typecheck (tsec)
+        run: npm run tsec-compile-check
+
+      - name: Unit tests (node)
+        run: npm run test-node
+
   build_void_win_x64:
     name: Build Void (win x64 system setup)
+    needs: preflight
     runs-on: windows-latest
     timeout-minutes: 360
     steps:
@@ -43,8 +88,8 @@ jobs:
       - name: Build Void React
         run: npm run buildreact
 
-      - name: Build Void (win32-x64 min)
-        run: npm run gulp "vscode-win32-x64-min"
+      - name: Build Void (win32-x64 fast)
+        run: npm run gulp "vscode-win32-x64"
 
       - name: Build Void installer (system)
         run: npm run gulp "vscode-win32-x64-system-setup"

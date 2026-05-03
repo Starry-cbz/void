@@ -1,0 +1,112 @@
+name: Build Windows x64 (Void + Chat2API)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build_void_win_x64:
+    name: Build Void (win x64)
+    runs-on: windows-latest
+    timeout-minutes: 360
+    steps:
+      - name: Checkout (main)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            build/package-lock.json
+            extensions/package-lock.json
+            remote/package-lock.json
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: npm ci
+        env:
+          npm_config_arch: x64
+          npm_config_foreground_scripts: "true"
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+
+      - name: Build Void React
+        run: npm run buildreact
+
+      - name: Build Void (win32-x64 min)
+        run: npm run gulp "vscode-win32-x64-min-ci"
+
+      - name: Build Void installers (user/system)
+        run: |
+          npm run gulp "vscode-win32-x64-user-setup"
+          npm run gulp "vscode-win32-x64-system-setup"
+
+      - name: Collect artifacts
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path ".build\artifacts" | Out-Null
+          Copy-Item ".build\win32-x64\user-setup\VSCodeSetup.exe" ".build\artifacts\Void-win32-x64-user-setup.exe" -Force
+          Copy-Item ".build\win32-x64\system-setup\VSCodeSetup.exe" ".build\artifacts\Void-win32-x64-system-setup.exe" -Force
+          7z a -tzip ".build\artifacts\Void-win32-x64.zip" "..\VSCode-win32-x64\*" | Out-Null
+
+      - name: Upload artifacts (Void)
+        uses: actions/upload-artifact@v4
+        with:
+          name: void-win-x64
+          path: .build/artifacts/*
+          if-no-files-found: error
+
+  build_chat2api_win_x64:
+    name: Build Chat2API (win x64)
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout (main)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: Chat2API/package-lock.json
+
+      - name: Install dependencies
+        working-directory: Chat2API
+        run: npm ci
+
+      - name: Build (win x64)
+        working-directory: Chat2API
+        run: npm run build:win
+
+      - name: Collect artifacts
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path ".build\artifacts-chat2api" | Out-Null
+          $setup = Get-ChildItem -Path "Chat2API\dist" -Filter "*setup*.exe" | Select-Object -First 1
+          if (-not $setup) { throw "Chat2API setup exe not found under Chat2API/dist" }
+          Copy-Item $setup.FullName ".build\artifacts-chat2api\Chat2API-win-x64-setup.exe" -Force
+
+          $portable = Get-ChildItem -Path "Chat2API\dist" -Filter "*portable*.exe" | Select-Object -First 1
+          if (-not $portable) { throw "Chat2API portable exe not found under Chat2API/dist" }
+          Copy-Item $portable.FullName ".build\artifacts-chat2api\Chat2API-win-x64-portable.exe" -Force
+
+      - name: Upload artifacts (Chat2API)
+        uses: actions/upload-artifact@v4
+        with:
+          name: chat2api-win-x64
+          path: .build/artifacts-chat2api/*
+          if-no-files-found: error
+

@@ -439,13 +439,14 @@ router.post('/completions', async (ctx: Context) => {
 
         // When source stream ends normally, update log and end wrapper
         result.stream.once('end', () => {
+          const contextMessages = result.contextMessages || request.messages
           // Register next context map for Qwen adapter if streaming completed
           if (QwenAdapter.isQwenProvider(provider) && result.sessionId && result.reqId) {
             // Need to extract the final concatenated text from SSE format here or 
             // since collectedContent holds raw SSE, we try to parse it
             const parsedMessage = extractContentFromSSE(collectedContent)
             if (parsedMessage.content || parsedMessage.tool_calls) {
-              QwenAdapter.recordNextContextMap(request.messages, parsedMessage, result.sessionId, result.reqId)
+              QwenAdapter.recordNextContextMap(contextMessages, parsedMessage, result.sessionId, result.reqId)
             }
           }
           
@@ -455,7 +456,7 @@ router.post('/completions', async (ctx: Context) => {
           if (QwenAiAdapter.isQwenAiProvider(provider) && result.chatId && parentId) {
             const parsedMessage = extractContentFromSSE(collectedContent);
             if (parsedMessage.content || parsedMessage.tool_calls) {
-              QwenAiAdapter.recordNextContextMap(request.messages, parsedMessage, result.chatId, parentId);
+              QwenAiAdapter.recordNextContextMap(contextMessages, parsedMessage, result.chatId, parentId);
             }
           }
 
@@ -486,11 +487,12 @@ router.post('/completions', async (ctx: Context) => {
         transformStream.pipe(wrapperStream, { end: false })
 
         transformStream.once('end', () => {
+          const contextMessages = result.contextMessages || request.messages
           // Register next context map for Qwen adapter if streaming completed
           if (QwenAdapter.isQwenProvider(provider) && result.sessionId && result.reqId) {
             const parsedMessage = extractContentFromSSE(collectedContent)
             if (parsedMessage.content || parsedMessage.tool_calls) {
-              QwenAdapter.recordNextContextMap(request.messages, parsedMessage, result.sessionId, result.reqId)
+              QwenAdapter.recordNextContextMap(contextMessages, parsedMessage, result.sessionId, result.reqId)
             }
           }
 
@@ -500,7 +502,7 @@ router.post('/completions', async (ctx: Context) => {
           if (QwenAiAdapter.isQwenAiProvider(provider) && result.chatId && parentId) {
             const parsedMessage = extractContentFromSSE(collectedContent);
             if (parsedMessage.content || parsedMessage.tool_calls) {
-              QwenAiAdapter.recordNextContextMap(request.messages, parsedMessage, result.chatId, parentId);
+              QwenAiAdapter.recordNextContextMap(contextMessages, parsedMessage, result.chatId, parentId);
             }
           }
 
@@ -519,11 +521,12 @@ router.post('/completions', async (ctx: Context) => {
       ctx.set('Content-Type', 'application/json')
 
       if (result.body) {
+        const contextMessages = result.contextMessages || request.messages
         // Register next context map for Qwen adapter
         if (QwenAdapter.isQwenProvider(provider) && result.sessionId && result.reqId) {
           const assistantMsg = result.body.choices?.[0]?.message || { content: '' }
           if (assistantMsg.content || assistantMsg.tool_calls) {
-             QwenAdapter.recordNextContextMap(request.messages, assistantMsg, result.sessionId, result.reqId)
+             QwenAdapter.recordNextContextMap(contextMessages, assistantMsg, result.sessionId, result.reqId)
           }
         }
         
@@ -533,7 +536,7 @@ router.post('/completions', async (ctx: Context) => {
         if (QwenAiAdapter.isQwenAiProvider(provider) && result.chatId && parentId) {
           const assistantMsg = result.body.choices?.[0]?.message || { content: '' };
           if (assistantMsg.content || assistantMsg.tool_calls) {
-             QwenAiAdapter.recordNextContextMap(request.messages, assistantMsg, result.chatId, parentId);
+             QwenAiAdapter.recordNextContextMap(contextMessages, assistantMsg, result.chatId, parentId);
           }
         }
 

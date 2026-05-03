@@ -943,6 +943,7 @@ CRITICAL RULES:
           providerSessionId: sessionId,
           sessionId: sessionId,
           reqId: reqId,
+          contextMessages: transformedRequest.messages as any,
         }
       }
 
@@ -964,6 +965,7 @@ CRITICAL RULES:
         providerSessionId: sessionId,
         sessionId: sessionId,
         reqId: reqId,
+        contextMessages: transformedRequest.messages as any,
       }
     } catch (error) {
       const latency = Date.now() - startTime
@@ -1044,6 +1046,7 @@ CRITICAL RULES:
           providerSessionId: chatId,
           chatId: chatId,
           parentId: parentId || undefined,
+          contextMessages: transformedRequest.messages as any,
         }
       }
 
@@ -1064,6 +1067,7 @@ CRITICAL RULES:
         providerSessionId: chatId,
         chatId: chatId,
         parentId: handler.getResponseId() || parentId || undefined,
+        contextMessages: transformedRequest.messages as any,
       }
     } catch (error) {
       const latency = Date.now() - startTime

@@ -245,6 +245,7 @@ export interface ForwardResult {
   reqId?: string
   chatId?: string
   parentId?: string
+  contextMessages?: ChatMessage[]
 }
 
 /**

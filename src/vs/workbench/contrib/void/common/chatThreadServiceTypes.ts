@@ -39,6 +39,7 @@ export type CheckpointEntry = {
 	role: 'checkpoint';
 	type: 'user_edit' | 'tool_edit';
 	voidFileSnapshotOfURI: { [fsPath: string]: VoidFileSnapshot | undefined };
+	chat2apiCheckpointId?: string;
 
 	userModifications: {
 		voidFileSnapshotOfURI: { [fsPath: string]: VoidFileSnapshot | undefined };

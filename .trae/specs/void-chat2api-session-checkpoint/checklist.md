@@ -1,0 +1,7 @@
+- [x] Chat2API 能读取 `X-Chat2API-Session` 并稳定复用同一个 qwen-ai `chatId`
+- [x] Chat2API 能生成并回传 `X-Chat2API-Checkpoint`，且 checkpoint 能映射到有效 parentId
+- [x] Void 每个对话线程都会发送 `X-Chat2API-Session`，撤销后会发送历史 `X-Chat2API-Checkpoint`
+- [x] Void 能捕获响应头 `X-Chat2API-Checkpoint` 并写入对应本地 checkpoint 节点
+- [x] 同一 sessionKey 的并发请求在 Chat2API 侧串行执行
+- [x] 手工验证：连续多轮对话不再创建多个 qwen 国际版会话窗口
+- [x] 手工验证：撤销到历史节点继续对话可形成分支且仍在同一 chatId 内

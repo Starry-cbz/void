@@ -734,12 +734,14 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		modelSelection,
 		modelSelectionOptions,
 		callThisToolFirst,
+		chat2apiCheckpointIdForFirstRequest,
 	}: {
 		threadId: string,
 		modelSelection: ModelSelection | null,
 		modelSelectionOptions: ModelSelectionOptions | undefined,
 
 		callThisToolFirst?: ToolMessage<ToolName> & { type: 'tool_request' }
+		chat2apiCheckpointIdForFirstRequest?: string
 	}) {
 
 
@@ -754,6 +756,8 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		let nMessagesSent = 0
 		let shouldSendAnotherMessage = true
 		let isRunningWhenEnd: IsRunningType = undefined
+		let chat2apiCheckpointIdToSend = chat2apiCheckpointIdForFirstRequest
+		let latestChat2apiCheckpointId: string | undefined
 
 		// before enter loop, call tool
 		if (callThisToolFirst) {
@@ -795,7 +799,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 				nAttempts += 1
 
 				type ResTypes =
-					| { type: 'llmDone', toolCall?: RawToolCallObj, info: { fullText: string, fullReasoning: string, anthropicReasoning: AnthropicReasoning[] | null } }
+					| { type: 'llmDone', toolCall?: RawToolCallObj, info: { fullText: string, fullReasoning: string, anthropicReasoning: AnthropicReasoning[] | null, chat2apiCheckpointId?: string } }
 					| { type: 'llmError', error?: { message: string; fullError: Error | null; } }
 					| { type: 'llmAborted' }
 
@@ -809,13 +813,17 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 					modelSelection,
 					modelSelectionOptions,
 					overridesOfModel,
+					openAICompatibleRequestHeaders: modelSelection?.providerName !== 'openAICompatible' ? undefined : ({
+						'X-Chat2API-Session': threadId,
+						...(chat2apiCheckpointIdToSend ? { 'X-Chat2API-Checkpoint': chat2apiCheckpointIdToSend } : {}),
+					}),
 					logging: { loggingName: `Chat - ${chatMode}`, loggingExtras: { threadId, nMessagesSent, chatMode } },
 					separateSystemMessage: separateSystemMessage,
 					onText: ({ fullText, fullReasoning, toolCall }) => {
 						this._setStreamState(threadId, { isRunning: 'LLM', llmInfo: { displayContentSoFar: fullText, reasoningSoFar: fullReasoning, toolCallSoFar: toolCall ?? null }, interrupt: Promise.resolve(() => { if (llmCancelToken) this._llmMessageService.abort(llmCancelToken) }) })
 					},
-					onFinalMessage: async ({ fullText, fullReasoning, toolCall, anthropicReasoning, }) => {
-						resMessageIsDonePromise({ type: 'llmDone', toolCall, info: { fullText, fullReasoning, anthropicReasoning } }) // resolve with tool calls
+					onFinalMessage: async ({ fullText, fullReasoning, toolCall, anthropicReasoning, chat2apiCheckpointId }) => {
+						resMessageIsDonePromise({ type: 'llmDone', toolCall, info: { fullText, fullReasoning, anthropicReasoning, chat2apiCheckpointId } }) // resolve with tool calls
 					},
 					onError: async (error) => {
 						resMessageIsDonePromise({ type: 'llmError', error: error })
@@ -876,6 +884,8 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 
 				// llm res success
 				const { toolCall, info } = llmRes
+				if (info.chat2apiCheckpointId) latestChat2apiCheckpointId = info.chat2apiCheckpointId
+				if (chat2apiCheckpointIdToSend) chat2apiCheckpointIdToSend = undefined
 
 				this._addMessageToThread(threadId, { role: 'assistant', displayContent: info.fullText, reasoning: info.fullReasoning, anthropicReasoning: info.anthropicReasoning })
 
@@ -904,7 +914,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		this._setStreamState(threadId, { isRunning: isRunningWhenEnd })
 
 		// add checkpoint before the next user message
-		if (!isRunningWhenEnd) this._addUserCheckpoint({ threadId })
+		if (!isRunningWhenEnd) this._addUserCheckpoint({ threadId, chat2apiCheckpointId: latestChat2apiCheckpointId })
 
 		// capture number of messages sent
 		this._metricsService.capture('Agent Loop Done', { nMessagesSent, chatMode })
@@ -991,12 +1001,13 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	}
 
 
-	private _addUserCheckpoint({ threadId }: { threadId: string }) {
+	private _addUserCheckpoint({ threadId, chat2apiCheckpointId }: { threadId: string, chat2apiCheckpointId?: string }) {
 		const { voidFileSnapshotOfURI } = this._computeNewCheckpointInfo({ threadId }) ?? {}
 		this._addCheckpoint(threadId, {
 			role: 'checkpoint',
 			type: 'user_edit',
 			voidFileSnapshotOfURI: voidFileSnapshotOfURI ?? {},
+			chat2apiCheckpointId,
 			userModifications: { voidFileSnapshotOfURI: {}, },
 		})
 	}
@@ -1231,7 +1242,7 @@ We only need to do it for files that were edited since `from`, ie files between 
 	}
 
 
-	private async _addUserMessageAndStreamResponse({ userMessage, _chatSelections, threadId }: { userMessage: string, _chatSelections?: StagingSelectionItem[], threadId: string }) {
+	private async _addUserMessageAndStreamResponse({ userMessage, _chatSelections, threadId, chat2apiCheckpointIdForFirstRequest }: { userMessage: string, _chatSelections?: StagingSelectionItem[], threadId: string, chat2apiCheckpointIdForFirstRequest?: string }) {
 		const thread = this.state.allThreads[threadId]
 		if (!thread) return // should never happen
 
@@ -1257,7 +1268,7 @@ We only need to do it for files that were edited since `from`, ie files between 
 		this._setThreadState(threadId, { currCheckpointIdx: null }) // no longer at a checkpoint because started streaming
 
 		this._wrapRunAgentToNotify(
-			this._runChatAgent({ threadId, ...this._currentModelSelectionProps(), }),
+			this._runChatAgent({ threadId, ...this._currentModelSelectionProps(), chat2apiCheckpointIdForFirstRequest }),
 			threadId,
 		)
 
@@ -1271,6 +1282,12 @@ We only need to do it for files that were edited since `from`, ie files between 
 	async addUserMessageAndStreamResponse({ userMessage, _chatSelections, threadId }: { userMessage: string, _chatSelections?: StagingSelectionItem[], threadId: string }) {
 		const thread = this.state.allThreads[threadId];
 		if (!thread) return
+
+		const chat2apiCheckpointIdForFirstRequest = thread.state.currCheckpointIdx === null ? undefined : (() => {
+			const checkpoint = thread.messages[thread.state.currCheckpointIdx]
+			if (!checkpoint || checkpoint.role !== 'checkpoint') return undefined
+			return checkpoint.chat2apiCheckpointId
+		})()
 
 		// if there's a current checkpoint, delete all messages after it
 		if (thread.state.currCheckpointIdx !== null) {
@@ -1291,7 +1308,7 @@ We only need to do it for files that were edited since `from`, ie files between 
 		}
 
 		// Now call the original method to add the user message and stream the response
-		await this._addUserMessageAndStreamResponse({ userMessage, _chatSelections, threadId });
+		await this._addUserMessageAndStreamResponse({ userMessage, _chatSelections, threadId, chat2apiCheckpointIdForFirstRequest });
 
 	}
 
@@ -1309,6 +1326,8 @@ We only need to do it for files that were edited since `from`, ie files between 
 
 		// clear messages up to the index
 		const slicedMessages = thread.messages.slice(0, messageIdx)
+		const lastMessage = slicedMessages[slicedMessages.length - 1]
+		const chat2apiCheckpointIdForFirstRequest = lastMessage?.role !== 'checkpoint' ? undefined : lastMessage.chat2apiCheckpointId
 		this._setState({
 			allThreads: {
 				...this.state.allThreads,
@@ -1320,7 +1339,7 @@ We only need to do it for files that were edited since `from`, ie files between 
 		})
 
 		// re-add the message and stream it
-		this._addUserMessageAndStreamResponse({ userMessage, _chatSelections: currSelns, threadId })
+		this._addUserMessageAndStreamResponse({ userMessage, _chatSelections: currSelns, threadId, chat2apiCheckpointIdForFirstRequest })
 	}
 
 	// ---------- the rest ----------

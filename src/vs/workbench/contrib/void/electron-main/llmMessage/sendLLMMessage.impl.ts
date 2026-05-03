@@ -20,6 +20,7 @@ import { getSendableReasoningInfo, getModelCapabilities, getProviderCapabilities
 import { extractReasoningWrapper, extractXMLToolsWrapper } from './extractGrammar.js';
 import { availableTools, InternalToolInfo } from '../../common/prompt/prompts.js';
 import { generateUuid } from '../../../../../base/common/uuid.js';
+import { createFetchWithInjectedHeaders } from '../../common/chat2apiHeaders.js';
 
 const getGoogleApiKey = async () => {
 	// module‑level singleton
@@ -42,6 +43,7 @@ type InternalCommonMessageParams = {
 	overridesOfModel: OverridesOfModel | undefined;
 	modelName: string;
 	_setAborter: (aborter: () => void) => void;
+	openAICompatibleRequestHeaders?: Record<string, string>;
 }
 
 type SendChatParams_Internal = InternalCommonMessageParams & {
@@ -69,10 +71,27 @@ const parseHeadersJSON = (s: string | undefined): Record<string, string | null |
 	}
 }
 
-const newOpenAICompatibleSDK = async ({ settingsOfProvider, providerName, includeInPayload }: { settingsOfProvider: SettingsOfProvider, providerName: ProviderName, includeInPayload?: { [s: string]: any } }) => {
+const newOpenAICompatibleSDK = async ({
+	settingsOfProvider,
+	providerName,
+	includeInPayload,
+	openAICompatibleRequestHeaders,
+	onChat2ApiCheckpointId,
+}: {
+	settingsOfProvider: SettingsOfProvider;
+	providerName: ProviderName;
+	includeInPayload?: { [s: string]: any };
+	openAICompatibleRequestHeaders?: Record<string, string>;
+	onChat2ApiCheckpointId?: (checkpointId: string) => void;
+}) => {
+	const fetch = (openAICompatibleRequestHeaders || onChat2ApiCheckpointId)
+		? createFetchWithInjectedHeaders(globalThis.fetch as any, openAICompatibleRequestHeaders, onChat2ApiCheckpointId)
+		: undefined;
+
 	const commonPayloadOpts: ClientOptions = {
 		dangerouslyAllowBrowser: true,
 		...includeInPayload,
+		...(fetch ? { fetch: fetch as any } : {}),
 	}
 	if (providerName === 'openAI') {
 		const thisConfig = settingsOfProvider[providerName]
@@ -270,7 +289,7 @@ const rawToolCallObjOfAnthropicParams = (toolBlock: Anthropic.Messages.ToolUseBl
 // ------------ OPENAI-COMPATIBLE ------------
 
 
-const _sendOpenAICompatibleChat = async ({ messages, onText, onFinalMessage, onError, settingsOfProvider, modelSelectionOptions, modelName: modelName_, _setAborter, providerName, chatMode, separateSystemMessage, overridesOfModel, mcpTools }: SendChatParams_Internal) => {
+const _sendOpenAICompatibleChat = async ({ messages, onText, onFinalMessage, onError, settingsOfProvider, modelSelectionOptions, modelName: modelName_, _setAborter, providerName, chatMode, separateSystemMessage, overridesOfModel, mcpTools, openAICompatibleRequestHeaders }: SendChatParams_Internal) => {
 	const {
 		modelName,
 		specialToolFormat,
@@ -296,7 +315,14 @@ const _sendOpenAICompatibleChat = async ({ messages, onText, onFinalMessage, onE
 		: {}
 
 	// instance
-	const openai: OpenAI = await newOpenAICompatibleSDK({ providerName, settingsOfProvider, includeInPayload })
+	let chat2apiCheckpointId: string | undefined
+	const openai: OpenAI = await newOpenAICompatibleSDK({
+		providerName,
+		settingsOfProvider,
+		includeInPayload,
+		openAICompatibleRequestHeaders,
+		onChat2ApiCheckpointId: (id) => { chat2apiCheckpointId = id },
+	})
 	if (providerName === 'microsoftAzure') {
 		// Required to select the model
 		(openai as AzureOpenAI).deploymentName = modelName;
@@ -377,7 +403,7 @@ const _sendOpenAICompatibleChat = async ({ messages, onText, onFinalMessage, onE
 			else {
 				const toolCall = rawToolCallObjOfParamsStr(toolName, toolParamsStr, toolId)
 				const toolCallObj = toolCall ? { toolCall } : {}
-				onFinalMessage({ fullText: fullTextSoFar, fullReasoning: fullReasoningSoFar, anthropicReasoning: null, ...toolCallObj });
+				onFinalMessage({ fullText: fullTextSoFar, fullReasoning: fullReasoningSoFar, anthropicReasoning: null, chat2apiCheckpointId, ...toolCallObj });
 			}
 		})
 		// when error/fail - this catches errors of both .create() and .then(for await)

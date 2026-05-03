@@ -69,6 +69,7 @@ interface ChatCompletionRequest {
   enable_thinking?: boolean
   thinking_budget?: number
   chatId?: string
+  parentId?: string | null
 }
 
 function uuid(): string {
@@ -338,6 +339,14 @@ export class QwenAiAdapter {
 
     const messages = request.messages
 
+    const forcedChatId = typeof request.chatId === 'string' ? request.chatId.trim() : ''
+    const forcedParentId =
+      typeof request.parentId === 'string'
+        ? (request.parentId.trim() ? request.parentId.trim() : null)
+        : request.parentId === null
+          ? null
+          : undefined
+
     let chatId = ''
     let parentId: string | null = null
     let isContinuation = false
@@ -371,10 +380,26 @@ export class QwenAiAdapter {
       console.log(`[QwenAI] First turn dialogue.`)
     }
 
+    if (forcedChatId) {
+      chatId = forcedChatId
+      isContinuation = true
+    }
+
+    if (forcedParentId !== undefined) {
+      parentId = forcedParentId
+      isContinuation = true
+    }
+
+    if (isContinuation && !chatId) {
+      isContinuation = false
+    }
+
     if (!isContinuation) {
       // Always create a new chat if not continuing
-      chatId = await this.createChat(modelId, 'OpenAI_API_Chat')
-      console.log('[QwenAI] Created new chat:', chatId)
+      if (!chatId) {
+        chatId = await this.createChat(modelId, 'OpenAI_API_Chat')
+        console.log('[QwenAI] Created new chat:', chatId)
+      }
     }
 
     // Extract system message and user message
@@ -640,7 +665,7 @@ export class QwenAiStreamHandler {
                 }
               }
 
-              const finishReason = (this.shouldParseToolCalls && this.toolCallState.hasEmittedToolCall) ? 'tool_calls' : (delta.finish_reason || 'stop')
+              const finishReason = (this.shouldParseToolCalls && this.toolCallState.hasEmittedToolCall) ? 'tool_calls' : 'stop'
               
               const finalChunk = {
                 id: this.responseId || this.chatId,

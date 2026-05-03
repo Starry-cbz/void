@@ -107,6 +107,36 @@ export class RequestForwarder {
     }
   }
 
+  private isEmptyChatCompletionBody(body: any): boolean {
+    const message = body?.choices?.[0]?.message
+    const content = message?.content
+    const reasoning = message?.reasoning_content
+    const toolCalls = message?.tool_calls
+    const contentEmpty = content === null || content === undefined || (typeof content === 'string' && content.trim() === '')
+    const reasoningEmpty = reasoning === null || reasoning === undefined || (typeof reasoning === 'string' && reasoning.trim() === '')
+    const toolCallsEmpty = !Array.isArray(toolCalls) || toolCalls.length === 0
+    return contentEmpty && reasoningEmpty && toolCallsEmpty
+  }
+
+  private sseHasMeaningfulDelta(sseData: string): boolean {
+    if (!sseData) return false
+    const lines = sseData.split('\n')
+    for (const line of lines) {
+      if (!line.startsWith('data: ') || line === 'data: [DONE]') continue
+      try {
+        const payload = JSON.parse(line.slice(6))
+        const delta = payload?.choices?.[0]?.delta
+        if (!delta) continue
+        if (typeof delta.content === 'string' && delta.content.length > 0) return true
+        if (typeof delta.reasoning_content === 'string' && delta.reasoning_content.length > 0) return true
+        if (Array.isArray(delta.tool_calls) && delta.tool_calls.length > 0) return true
+      } catch {
+        continue
+      }
+    }
+    return false
+  }
+
   private hasMCPToolDefinitions(messages: any[]): boolean {
     for (const msg of messages) {
       if (msg.role === 'system' && typeof msg.content === 'string') {
@@ -943,6 +973,7 @@ CRITICAL RULES:
           providerSessionId: sessionId,
           sessionId: sessionId,
           reqId: reqId,
+          contextMessages: transformedRequest.messages as any,
         }
       }
 
@@ -964,6 +995,7 @@ CRITICAL RULES:
         providerSessionId: sessionId,
         sessionId: sessionId,
         reqId: reqId,
+        contextMessages: transformedRequest.messages as any,
       }
     } catch (error) {
       const latency = Date.now() - startTime
@@ -994,26 +1026,11 @@ CRITICAL RULES:
       }
       
       const adapter = new QwenAiAdapter(provider, account)
-      const { response, chatId, parentId } = await adapter.chatCompletion({
-        model: actualModel,
-        originalModel: request.model,
-        messages: transformedRequest.messages as any,
-        stream: request.stream,
-        temperature: request.temperature,
-        enable_thinking: !!request.reasoning_effort,
-      })
-
-      const latency = Date.now() - startTime
-
-      if (response.status >= 400) {
-        let errorMessage = `HTTP ${response.status}`
-        return {
-          success: false,
-          status: response.status,
-          error: errorMessage,
-          latency,
-        }
-      }
+      const config = storeManager.getConfig()
+      const maxRetries = config.retryCount
+      let attempt = 0
+      let forcedChatId: string | undefined = request.chatId || undefined
+      const forcedParentId: string | null | undefined = request.parentId
 
       const deleteChatCallback = shouldDeleteSession()
         ? async (cid: string) => {
@@ -1025,45 +1042,186 @@ CRITICAL RULES:
           }
         : undefined
 
-      const handler = new QwenAiStreamHandler(actualModel, deleteChatCallback, transformed.shouldParseToolCalls)
-      handler.setChatId(chatId)
-
       if (request.stream) {
-        const transformedStream = await handler.handleStream(response.data)
+        const outputStream = new PassThrough()
+        let currentHandler: QwenAiStreamHandler | null = null
+        ;(outputStream as any).qwenAiHandler = {
+          getResponseId: () => currentHandler?.getResponseId() || '',
+        }
 
-        // Attach handler to stream so router can access dynamic responseId
-        ;(transformedStream as any).qwenAiHandler = handler
+        let resolvedMeta = false
+        let resolvedStatus: number | undefined
+        let resolvedHeaders: Record<string, string> | undefined
+        let resolvedChatId: string | undefined
+        let resolvedParentId: string | null | undefined
+
+        const runAttempt = async (): Promise<void> => {
+          const { response, chatId, parentId } = await adapter.chatCompletion({
+            model: actualModel,
+            originalModel: request.model,
+            messages: transformedRequest.messages as any,
+            stream: request.stream,
+            temperature: request.temperature,
+            enable_thinking: !!request.reasoning_effort,
+            chatId: forcedChatId,
+            parentId: forcedParentId,
+          })
+
+          if (response.status >= 400) {
+            if (attempt < maxRetries && (response.status >= 500 || response.status === 429)) {
+              attempt++
+              forcedChatId = chatId
+              await this.delay(1500)
+              await runAttempt()
+              return
+            }
+            const errorMessage = `HTTP ${response.status}`
+            outputStream.write(
+              `data: ${JSON.stringify({
+                id: `chatcmpl-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+                object: 'chat.completion.chunk',
+                created: Math.floor(Date.now() / 1000),
+                model: actualModel,
+                choices: [{ index: 0, delta: { content: `\n\n[Error: ${errorMessage}]` }, finish_reason: 'stop' }],
+              })}\n\n`
+            )
+            outputStream.end('data: [DONE]\n\n')
+            return
+          }
+
+          if (!resolvedMeta) {
+            resolvedMeta = true
+            resolvedStatus = response.status
+            resolvedHeaders = this.extractHeaders(response.headers)
+          }
+
+          resolvedChatId = chatId
+          resolvedParentId = parentId
+
+          const handler = new QwenAiStreamHandler(actualModel, deleteChatCallback, transformed.shouldParseToolCalls)
+          handler.setChatId(chatId)
+          currentHandler = handler
+
+          const transformedStream = await handler.handleStream(response.data)
+
+          let buffered = ''
+          let hasMeaningful = false
+          let ended = false
+
+          const finalize = async () => {
+            if (ended) return
+            ended = true
+
+            if (!hasMeaningful && attempt < maxRetries) {
+              attempt++
+              forcedChatId = chatId
+              buffered = ''
+              await this.delay(1500)
+              await runAttempt()
+              return
+            }
+
+            if (!hasMeaningful && buffered) {
+              outputStream.write(buffered)
+            }
+            outputStream.end()
+          }
+
+          transformedStream.on('data', (chunk: Buffer) => {
+            const text = chunk.toString()
+            if (!hasMeaningful) {
+              buffered += text
+              if (this.sseHasMeaningfulDelta(buffered)) {
+                hasMeaningful = true
+                outputStream.write(buffered)
+                buffered = ''
+              }
+            } else {
+              outputStream.write(chunk)
+            }
+          })
+
+          transformedStream.once('end', finalize)
+          transformedStream.once('error', finalize)
+        }
+
+        await runAttempt()
+
+        const latency = Date.now() - startTime
+
+        return {
+          success: true,
+          status: resolvedStatus,
+          headers: resolvedHeaders,
+          stream: outputStream,
+          skipTransform: true,
+          latency,
+          providerSessionId: resolvedChatId,
+          chatId: resolvedChatId,
+          parentId: resolvedParentId || undefined,
+          contextMessages: transformedRequest.messages as any,
+        }
+      }
+
+      while (true) {
+        const { response, chatId, parentId } = await adapter.chatCompletion({
+          model: actualModel,
+          originalModel: request.model,
+          messages: transformedRequest.messages as any,
+          stream: request.stream,
+          temperature: request.temperature,
+          enable_thinking: !!request.reasoning_effort,
+          chatId: forcedChatId,
+          parentId: forcedParentId,
+        })
+
+        const latency = Date.now() - startTime
+
+        if (response.status >= 400) {
+          if (attempt < maxRetries && (response.status >= 500 || response.status === 429)) {
+            attempt++
+            forcedChatId = chatId
+            await this.delay(1500)
+            continue
+          }
+          let errorMessage = `HTTP ${response.status}`
+          return {
+            success: false,
+            status: response.status,
+            error: errorMessage,
+            latency,
+          }
+        }
+
+        const handler = new QwenAiStreamHandler(actualModel, deleteChatCallback, transformed.shouldParseToolCalls)
+        handler.setChatId(chatId)
+
+        const result = await handler.handleNonStream(response.data)
+
+        this.applyToolCallsToResponse(result, request.model, request.tools)
+
+        if (this.isEmptyChatCompletionBody(result) && attempt < maxRetries) {
+          attempt++
+          forcedChatId = chatId
+          await this.delay(1500)
+          continue
+        }
+
+        if (deleteChatCallback) {
+          await deleteChatCallback(chatId)
+        }
 
         return {
           success: true,
           status: response.status,
           headers: this.extractHeaders(response.headers),
-          stream: transformedStream,
-          skipTransform: true,
+          body: result,
           latency,
           providerSessionId: chatId,
           chatId: chatId,
-          parentId: parentId || undefined,
+          parentId: handler.getResponseId() || parentId || undefined,
+          contextMessages: transformedRequest.messages as any,
         }
-      }
-
-      const result = await handler.handleNonStream(response.data)
-
-      this.applyToolCallsToResponse(result, request.model, request.tools)
-
-      if (deleteChatCallback) {
-        await deleteChatCallback(chatId)
-      }
-
-      return {
-        success: true,
-        status: response.status,
-        headers: this.extractHeaders(response.headers),
-        body: result,
-        latency,
-        providerSessionId: chatId,
-        chatId: chatId,
-        parentId: handler.getResponseId() || parentId || undefined,
       }
     } catch (error) {
       const latency = Date.now() - startTime

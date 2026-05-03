@@ -52,6 +52,8 @@ jobs:
 
       - name: Typecheck (tsec)
         run: npm run tsec-compile-check
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
 
       - name: Unit tests (node)
         run: npm run test-node

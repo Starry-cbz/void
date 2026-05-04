@@ -143,6 +143,8 @@ suite('Void Cursor Prompts - Static Verification', () => {
 				enhancedContextIncludeScmChangedFiles: true,
 				enhancedContextIncludeCodeSnippet: true,
 				enhancedContextIncludeTerminalSummary: true,
+				enhancedContextIncludeDiffSummary: true,
+				enhancedContextIncludeRecentFiles: true,
 			},
 			{
 				diagnostics: '- Errors: 1\n- Warnings: 2',

@@ -50,7 +50,7 @@ suite('Void Enhanced Context', () => {
 			}
 		);
 
-		assert.ok(!ctx.includes('<Diff>'));
+		assert.strictEqual(ctx, undefined);
 	});
 
 	test('includes RecentFiles section with stable ordering and formatting', async () => {
@@ -102,6 +102,6 @@ suite('Void Enhanced Context', () => {
 			}
 		);
 
-		assert.ok(!ctx.includes('<RecentFiles>'));
+		assert.strictEqual(ctx, undefined);
 	});
 });

@@ -2,9 +2,7 @@ name: Build Void Windows x64 (System Setup)
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
+  
 
 jobs:
   preflight:

@@ -1561,6 +1561,34 @@ Alternatively, place a \`.voidrules\` file in the root of your workspace.
 													<span className='text-void-fg-3 text-xs pointer-events-none'>Enhanced context</span>
 												</div>
 												<div className='text-void-fg-3 text-xs mt-1'>{`When enabled, Void includes additional context (files, selections, and metadata) in requests.`}</div>
+												{settingsState.globalSettings.enableEnhancedContext ? (
+													<div className='flex flex-col gap-2 mt-3 ml-4'>
+														<div className='flex items-center gap-x-2'>
+															<VoidSwitch
+																size='xs'
+																value={!!settingsState.globalSettings.enhancedContextIncludeCodeSnippet}
+																onChange={(newVal) => voidSettingsService.setGlobalSetting('enhancedContextIncludeCodeSnippet', newVal)}
+															/>
+															<span className='text-void-fg-3 text-xs pointer-events-none'>Include code snippet</span>
+														</div>
+														<div className='flex items-center gap-x-2'>
+															<VoidSwitch
+																size='xs'
+																value={!!settingsState.globalSettings.enhancedContextIncludeTerminalSummary}
+																onChange={(newVal) => voidSettingsService.setGlobalSetting('enhancedContextIncludeTerminalSummary', newVal)}
+															/>
+															<span className='text-void-fg-3 text-xs pointer-events-none'>Include terminal summary</span>
+														</div>
+														<div className='flex items-center gap-x-2'>
+															<VoidSwitch
+																size='xs'
+																value={!!settingsState.globalSettings.enhancedContextIncludeScmChangedFiles}
+																onChange={(newVal) => voidSettingsService.setGlobalSetting('enhancedContextIncludeScmChangedFiles', newVal)}
+															/>
+															<span className='text-void-fg-3 text-xs pointer-events-none'>Include SCM changed files</span>
+														</div>
+													</div>
+												) : null}
 											</div>
 										</ErrorBoundary>
 									</div>

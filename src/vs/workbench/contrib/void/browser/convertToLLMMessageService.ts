@@ -21,6 +21,11 @@ import { IMCPService } from '../common/mcpService.js';
 import { IMarkerService, MarkerSeverity } from '../../../../platform/markers/common/markers.js';
 import { ISCMService } from '../../scm/common/scm.js';
 import { ITerminalSnippetService } from './terminalSnippetService.js';
+import { ICodeEditorService } from '../../../../editor/browser/services/codeEditorService.js';
+import { Range } from '../../../../editor/common/core/range.js';
+import { ITerminalService } from '../../terminal/browser/terminal.js';
+import { TerminalCapability } from '../../../../platform/terminal/common/capabilities/capabilities.js';
+import { buildEnhancedContext } from '../common/enhancedContext.js';
 
 export const EMPTY_MESSAGE = '(empty message)'
 
@@ -45,6 +50,49 @@ type SimpleLLMMessage = {
 
 const CHARS_PER_TOKEN = 4 // assume abysmal chars per token
 const TRIM_TO_LEN = 120
+
+const ENHANCED_CONTEXT_DIAGNOSTICS_MAX_CHARS = 4_000
+const ENHANCED_CONTEXT_DIAGNOSTICS_MAX_LINES = 120
+
+const ENHANCED_CONTEXT_SCM_MAX_ITEMS = 20
+const ENHANCED_CONTEXT_SCM_MAX_CHARS = 4_000
+
+const ENHANCED_CONTEXT_EDITOR_WINDOW_LINES = 80
+const ENHANCED_CONTEXT_EDITOR_MAX_LINES = 200
+const ENHANCED_CONTEXT_EDITOR_MAX_CHARS = 10_000
+
+const ENHANCED_CONTEXT_TERMINAL_RECENT_COMMANDS = 10
+const ENHANCED_CONTEXT_TERMINAL_FAILURE_MAX_CHARS = 6_000
+const ENHANCED_CONTEXT_TERMINAL_MAX_CHARS = 8_000
+
+const _limitChars = (text: string, maxChars: number) => {
+	const trimmed = text.trim()
+	if (!trimmed) return { text: '', wasTruncated: false }
+	if (trimmed.length <= maxChars) return { text: trimmed, wasTruncated: false }
+	return { text: `${trimmed.slice(0, maxChars)}\n...`, wasTruncated: true }
+}
+
+const _limitLines = (text: string, maxLines: number) => {
+	const trimmed = text.trim()
+	if (!trimmed) return { text: '', wasTruncated: false }
+	const lines = trimmed.split('\n')
+	if (lines.length <= maxLines) return { text: trimmed, wasTruncated: false }
+	return { text: `${lines.slice(0, maxLines).join('\n')}\n...`, wasTruncated: true }
+}
+
+const _limitText = (text: string, opts: { maxChars: number, maxLines?: number }) => {
+	let curr = text
+	let wasTruncated = false
+	if (opts.maxLines !== undefined) {
+		const res = _limitLines(curr, opts.maxLines)
+		curr = res.text
+		wasTruncated = wasTruncated || res.wasTruncated
+	}
+	const res2 = _limitChars(curr, opts.maxChars)
+	curr = res2.text
+	wasTruncated = wasTruncated || res2.wasTruncated
+	return { text: curr, wasTruncated }
+}
 
 
 
@@ -539,8 +587,10 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		@IModelService private readonly modelService: IModelService,
 		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService,
 		@IEditorService private readonly editorService: IEditorService,
+		@ICodeEditorService private readonly codeEditorService: ICodeEditorService,
 		@IDirectoryStrService private readonly directoryStrService: IDirectoryStrService,
 		@ITerminalToolService private readonly terminalToolService: ITerminalToolService,
+		@ITerminalService private readonly terminalService: ITerminalService,
 		@IVoidSettingsService private readonly voidSettingsService: IVoidSettingsService,
 		@IVoidModelService private readonly voidModelService: IVoidModelService,
 		@IMCPService private readonly mcpService: IMCPService,
@@ -608,45 +658,139 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			.map(([path, c]) => `- ${path}: ${c.errors}E ${c.warnings}W`)
 			.join('\n')
 
-		return `Diagnostics:\n- Errors: ${errors}\n- Warnings: ${warnings}${topFiles ? `\n${topFiles}` : ''}`
+		const body = `- Errors: ${errors}\n- Warnings: ${warnings}${topFiles ? `\n${topFiles}` : ''}`
+		return _limitText(body, { maxChars: ENHANCED_CONTEXT_DIAGNOSTICS_MAX_CHARS, maxLines: ENHANCED_CONTEXT_DIAGNOSTICS_MAX_LINES }).text || null
 	}
 
-	private _getGitSummary(): string | null {
+	private _getScmChangedFilesSummary(): string | null {
+		if (!this.voidSettingsService.state.globalSettings.enhancedContextIncludeScmChangedFiles) return null
 		const repos = Array.from(this.scmService.repositories || [])
 		const repo = repos.find((r) => r.provider.contextValue === 'git')
 		if (!repo) return null
 
 		const root = repo.provider.rootUri?.fsPath
 		let changes = 0
+		const uriStrs = new Set<string>()
+		const uris: URI[] = []
 		for (const g of repo.provider.groups) {
-			changes += g.resources.length
+			for (const r of g.resources) {
+				changes += 1
+				const uri = r.sourceUri
+				const key = uri.toString()
+				if (!uriStrs.has(key)) {
+					uriStrs.add(key)
+					uris.push(uri)
+				}
+			}
 		}
 
-		const rootLine = root ? `- Root: ${root}` : ''
-		return `Git:\n${rootLine ? `${rootLine}\n` : ''}- Changes: ${changes}`
+		if (changes === 0) return null
+
+		const sorted = [...uris].sort((a, b) => {
+			const aa = a.fsPath || a.toString()
+			const bb = b.fsPath || b.toString()
+			return aa.localeCompare(bb)
+		})
+
+		const top = sorted.slice(0, ENHANCED_CONTEXT_SCM_MAX_ITEMS)
+		const paths = top.map(u => u.fsPath || u.toString())
+
+		const lines: string[] = []
+		if (root) lines.push(`Root: ${root}`)
+		lines.push(`Changes: ${changes}`)
+		if (paths.length) {
+			lines.push(`Changed files (${paths.length}/${uriStrs.size}):`)
+			lines.push(...paths.map(p => `- ${p}`))
+		}
+
+		return _limitText(lines.join('\n'), { maxChars: ENHANCED_CONTEXT_SCM_MAX_CHARS }).text || null
 	}
 
-	private _getTerminalFailureSummary(): string | null {
-		const snippet = this.terminalSnippetService.getActiveFailedSnippet()
-		if (!snippet) return null
-		const content = snippet.content?.trim()
-		if (!content) return null
+	private _getEditorSnippetSummary(): string | null {
+		if (!this.voidSettingsService.state.globalSettings.enhancedContextIncludeCodeSnippet) return null
 
-		const max = 6000
-		const trimmed = content.length > max ? `${content.slice(0, max)}\n...` : content
-		return `Last terminal failure (active terminal):\n${tripleTick[0]}\n${trimmed}\n${tripleTick[1]}`
+		const editor = this.codeEditorService.getActiveCodeEditor()
+		if (!editor) return null
+
+		const model = editor.getModel()
+		if (!model) return null
+
+		const position = (editor as any).getPosition?.() as { lineNumber: number, column: number } | undefined
+		const selection = (editor as any).getSelection?.() as { startLineNumber: number, startColumn: number, endLineNumber: number, endColumn: number } | undefined
+
+		const focusLine = position?.lineNumber ?? selection?.endLineNumber ?? selection?.startLineNumber
+		if (!focusLine) return null
+
+		const half = Math.floor(ENHANCED_CONTEXT_EDITOR_MAX_LINES / 2)
+		let startLine = Math.max(1, focusLine - ENHANCED_CONTEXT_EDITOR_WINDOW_LINES)
+		let endLine = Math.min(model.getLineCount(), focusLine + ENHANCED_CONTEXT_EDITOR_WINDOW_LINES)
+		if (endLine - startLine + 1 > ENHANCED_CONTEXT_EDITOR_MAX_LINES) {
+			startLine = Math.max(1, focusLine - half)
+			endLine = Math.min(model.getLineCount(), startLine + ENHANCED_CONTEXT_EDITOR_MAX_LINES - 1)
+			startLine = Math.max(1, endLine - ENHANCED_CONTEXT_EDITOR_MAX_LINES + 1)
+		}
+
+		const range = new Range(startLine, 1, endLine, model.getLineMaxColumn(endLine))
+		const rawSnippet = model.getValueInRange(range).replace(/\r\n/g, '\n')
+		const snippet = _limitText(rawSnippet, { maxChars: ENHANCED_CONTEXT_EDITOR_MAX_CHARS, maxLines: ENHANCED_CONTEXT_EDITOR_MAX_LINES }).text
+		if (!snippet) return null
+
+		const file = model.uri.fsPath || model.uri.toString()
+		const lines: string[] = []
+		lines.push(`File: ${file}`)
+		if (selection) {
+			lines.push(`Selection: L${selection.startLineNumber}:${selection.startColumn}-L${selection.endLineNumber}:${selection.endColumn}`)
+		} else if (position) {
+			lines.push(`Position: L${position.lineNumber}:${position.column}`)
+		}
+		lines.push(`Window: ${startLine}-${endLine}`)
+		lines.push(`${tripleTick[0]}${model.getLanguageId()}\n${snippet}\n${tripleTick[1]}`)
+		return lines.join('\n')
+	}
+
+	private _getTerminalSummary(): string | null {
+		if (!this.voidSettingsService.state.globalSettings.enhancedContextIncludeTerminalSummary) return null
+
+		const failed = this.terminalSnippetService.getActiveFailedSnippet()
+		const failedContent = failed?.content ? _limitChars(failed.content, ENHANCED_CONTEXT_TERMINAL_FAILURE_MAX_CHARS).text : ''
+
+		const instance = this.terminalService.activeInstance
+		const cmdCap = instance?.capabilities.get(TerminalCapability.CommandDetection)
+		const commands = (cmdCap && 'commands' in cmdCap) ? (cmdCap.commands as readonly { command: string, exitCode: number | undefined }[]) : undefined
+		const recent = commands && commands.length ? commands.slice(-ENHANCED_CONTEXT_TERMINAL_RECENT_COMMANDS) : []
+
+		const parts: string[] = []
+
+		if (failedContent) {
+			parts.push(`Last terminal failure (active terminal):\n${tripleTick[0]}\n${failedContent}\n${tripleTick[1]}`)
+		}
+
+		if (recent.length) {
+			const lines = recent.map(c => `- ${c.command.replace(/\n/g, ' ')} (exitCode: ${c.exitCode ?? '?'})`)
+			parts.push(`Recent commands (active terminal):\n${lines.join('\n')}`)
+		}
+
+		if (!parts.length) return null
+
+		return _limitText(parts.join('\n\n'), { maxChars: ENHANCED_CONTEXT_TERMINAL_MAX_CHARS }).text || null
 	}
 
 	private _getEnhancedContext(): string | undefined {
-		if (!this.voidSettingsService.state.globalSettings.enableEnhancedContext) return undefined
-		const parts: string[] = []
-		const diagnostics = this._getDiagnosticsSummary()
-		const git = this._getGitSummary()
-		const terminal = this._getTerminalFailureSummary()
-		if (diagnostics) parts.push(diagnostics)
-		if (git) parts.push(git)
-		if (terminal) parts.push(terminal)
-		return parts.length ? parts.join('\n\n') : undefined
+		const settings = this.voidSettingsService.state.globalSettings;
+		return buildEnhancedContext(
+			{
+				enableEnhancedContext: settings.enableEnhancedContext,
+				enhancedContextIncludeScmChangedFiles: settings.enhancedContextIncludeScmChangedFiles,
+				enhancedContextIncludeCodeSnippet: settings.enhancedContextIncludeCodeSnippet,
+				enhancedContextIncludeTerminalSummary: settings.enhancedContextIncludeTerminalSummary,
+			},
+			{
+				diagnostics: this._getDiagnosticsSummary(),
+				scm: this._getScmChangedFilesSummary(),
+				editor: this._getEditorSnippetSummary(),
+				terminal: this._getTerminalSummary(),
+			}
+		);
 	}
 
 

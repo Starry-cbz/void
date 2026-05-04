@@ -295,6 +295,10 @@ class VoidSettingsService extends Disposable implements IVoidSettingsService {
 			
 			// add autoAcceptLLMChanges feature
 			if (readS.globalSettings.autoAcceptLLMChanges === undefined) readS.globalSettings.autoAcceptLLMChanges = false;
+
+			if (readS.globalSettings.enhancedContextIncludeCodeSnippet === undefined) readS.globalSettings.enhancedContextIncludeCodeSnippet = true
+			if (readS.globalSettings.enhancedContextIncludeTerminalSummary === undefined) readS.globalSettings.enhancedContextIncludeTerminalSummary = true
+			if (readS.globalSettings.enhancedContextIncludeScmChangedFiles === undefined) readS.globalSettings.enhancedContextIncludeScmChangedFiles = true
 		}
 		catch (e) {
 			readS = defaultState()

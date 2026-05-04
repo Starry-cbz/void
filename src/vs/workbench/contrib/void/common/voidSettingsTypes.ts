@@ -443,6 +443,9 @@ export type GlobalSettings = {
 	aiInstructions: string;
 	promptStyle: 'legacy' | 'cursor';
 	enableEnhancedContext: boolean;
+	enhancedContextIncludeCodeSnippet: boolean;
+	enhancedContextIncludeTerminalSummary: boolean;
+	enhancedContextIncludeScmChangedFiles: boolean;
 	enableAutocomplete: boolean;
 	syncApplyToChat: boolean;
 	syncSCMToChat: boolean;
@@ -461,6 +464,9 @@ export const defaultGlobalSettings: GlobalSettings = {
 	aiInstructions: '',
 	promptStyle: 'cursor',
 	enableEnhancedContext: true,
+	enhancedContextIncludeCodeSnippet: true,
+	enhancedContextIncludeTerminalSummary: true,
+	enhancedContextIncludeScmChangedFiles: true,
 	enableAutocomplete: false,
 	syncApplyToChat: true,
 	syncSCMToChat: true,

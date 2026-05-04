@@ -897,7 +897,6 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			}
 		);
 	}
-	}
 
 
 	// system message

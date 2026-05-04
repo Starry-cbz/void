@@ -87,6 +87,13 @@ export type StagingSelectionItem = {
 	uri: URI;
 	language?: undefined;
 	state?: undefined;
+} | {
+	type: 'Terminal';
+	terminalId: string;
+	content: string;
+	uri?: undefined;
+	language?: undefined;
+	state?: undefined;
 }
 
 

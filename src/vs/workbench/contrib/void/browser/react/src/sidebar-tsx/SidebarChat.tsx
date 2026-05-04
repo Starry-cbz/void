@@ -11,6 +11,7 @@ import { ScrollType } from '../../../../../../../editor/common/editorCommon.js';
 
 import { ChatMarkdownRender, ChatMessageLocation, getApplyBoxId } from '../markdown/ChatMarkdownRender.js';
 import { URI } from '../../../../../../../base/common/uri.js';
+import { UriList } from '../../../../../../../base/common/dataTransfer.js';
 import { IDisposable } from '../../../../../../../base/common/lifecycle.js';
 import { ErrorDisplay } from './ErrorDisplay.js';
 import { BlockCode, TextAreaFns, VoidCustomDropdownBox, VoidInputBox2, VoidSlider, VoidSwitch, VoidDiffEditor } from '../util/inputs.js';
@@ -22,7 +23,7 @@ import { ChatMode, displayInfoOfProviderName, FeatureName, isFeatureNameDisabled
 import { ICommandService } from '../../../../../../../platform/commands/common/commands.js';
 import { WarningBox } from '../void-settings-tsx/WarningBox.js';
 import { getModelCapabilities, getIsReasoningEnabledState } from '../../../../common/modelCapabilities.js';
-import { AlertTriangle, File, Ban, Check, ChevronRight, Dot, FileIcon, Pencil, Undo, Undo2, X, Flag, Copy as CopyIcon, Info, CirclePlus, Ellipsis, CircleEllipsis, Folder, ALargeSmall, TypeOutline, Text } from 'lucide-react';
+import { AlertTriangle, File, Ban, Check, ChevronRight, Dot, FileIcon, Pencil, Undo, Undo2, X, Flag, Copy as CopyIcon, Info, CirclePlus, Ellipsis, CircleEllipsis, Folder, ALargeSmall, TypeOutline, Text, Terminal } from 'lucide-react';
 import { ChatMessage, CheckpointEntry, StagingSelectionItem, ToolMessage } from '../../../../common/chatThreadServiceTypes.js';
 import { approvalTypeOfBuiltinToolName, BuiltinToolCallParams, BuiltinToolName, ToolName, LintErrorItem, ToolApprovalType, toolApprovalTypes } from '../../../../common/toolsServiceTypes.js';
 import { CopyButton, EditToolAcceptRejectButtonsHTML, IconShell1, JumpToFileButton, JumpToTerminalButton, StatusIndicator, StatusIndicatorForApplyButton, useApplyStreamState, useEditToolStreamState } from '../markdown/ApplyBlockHoverButtons.js';
@@ -299,6 +300,7 @@ interface VoidChatAreaProps {
 	isStreaming: boolean;
 	isDisabled?: boolean;
 	divRef?: React.RefObject<HTMLDivElement | null>;
+	onDrop?: (e: React.DragEvent<HTMLDivElement>) => void;
 
 	// UI customization
 	className?: string;
@@ -306,6 +308,7 @@ interface VoidChatAreaProps {
 	showSelections?: boolean;
 	showProspectiveSelections?: boolean;
 	loadingIcon?: React.ReactNode;
+	dropActiveLabel?: string;
 
 	selections?: StagingSelectionItem[]
 	setSelections?: (s: StagingSelectionItem[]) => void
@@ -336,7 +339,18 @@ export const VoidChatArea: React.FC<VoidChatAreaProps> = ({
 	setSelections,
 	featureName,
 	loadingIcon,
+	onDrop,
+	dropActiveLabel = '松开以添加文件/文件夹',
 }) => {
+	const [isDropActive, setIsDropActive] = useState(false)
+	const dragCounterRef = useRef(0)
+
+	const isSupportedDrop = useCallback((dt: DataTransfer | null) => {
+		if (!dt) return false
+		const types = Array.from(dt.types ?? [])
+		return types.includes('Files') || types.includes('text/uri-list')
+	}, [])
+
 	return (
 		<div
 			ref={divRef}
@@ -347,13 +361,51 @@ export const VoidChatArea: React.FC<VoidChatAreaProps> = ({
                 bg-void-bg-1
 				transition-all duration-200
 				border border-void-border-3 focus-within:border-void-border-1 hover:border-void-border-1
+				${isDropActive ? 'border-void-border-1 ring-1 ring-void-border-1' : ''}
 				max-h-[80vh] overflow-y-auto
                 ${className}
             `}
 			onClick={(e) => {
 				onClickAnywhere?.()
 			}}
+			onDragEnter={(e) => {
+				if (!isSupportedDrop(e.dataTransfer)) return
+				e.preventDefault()
+				e.stopPropagation()
+				dragCounterRef.current += 1
+				setIsDropActive(true)
+			}}
+			onDragOver={(e) => {
+				if (!isSupportedDrop(e.dataTransfer)) return
+				e.preventDefault()
+				e.stopPropagation()
+				setIsDropActive(true)
+			}}
+			onDragLeave={(e) => {
+				if (!isSupportedDrop(e.dataTransfer)) return
+				e.preventDefault()
+				e.stopPropagation()
+				dragCounterRef.current = Math.max(0, dragCounterRef.current - 1)
+				if (dragCounterRef.current === 0) {
+					setIsDropActive(false)
+				}
+			}}
+			onDrop={(e) => {
+				if (!isSupportedDrop(e.dataTransfer)) return
+				e.preventDefault()
+				e.stopPropagation()
+				dragCounterRef.current = 0
+				setIsDropActive(false)
+				onDrop?.(e)
+			}}
 		>
+			{isDropActive ? (
+				<div className='absolute inset-0 z-10 pointer-events-none flex items-center justify-center rounded-md bg-void-bg-1/60 backdrop-blur-[1px]'>
+					<div className='px-2 py-1 rounded text-xs text-void-fg-3 bg-void-bg-3 border border-void-border-2'>
+						{dropActiveLabel}
+					</div>
+				</div>
+			) : null}
 			{/* Selections section */}
 			{showSelections && selections && setSelections && (
 				<SelectedFiles
@@ -651,14 +703,20 @@ export const SelectedFiles = (
 				const thisKey = selection.type === 'CodeSelection' ? selection.type + selection.language + selection.range + selection.state.wasAddedAsCurrentFile + selection.uri.fsPath
 					: selection.type === 'File' ? selection.type + selection.language + selection.state.wasAddedAsCurrentFile + selection.uri.fsPath
 						: selection.type === 'Folder' ? selection.type + selection.language + selection.state + selection.uri.fsPath
+							: selection.type === 'Terminal' ? selection.type + selection.terminalId + selection.content.length
 							: i
 
 				const SelectionIcon = (
 					selection.type === 'File' ? File
 						: selection.type === 'Folder' ? Folder
 							: selection.type === 'CodeSelection' ? Text
+								: selection.type === 'Terminal' ? Terminal
 								: (undefined as never)
 				)
+
+				const tooltipContent = selection.type === 'Terminal'
+					? `Terminal ${selection.terminalId}`
+					: getRelative(selection.uri, accessor)
 
 				return <div // container for summarybox and code
 					key={thisKey}
@@ -667,7 +725,7 @@ export const SelectedFiles = (
 					{/* tooltip for file path */}
 					<span className="truncate overflow-hidden text-ellipsis"
 						data-tooltip-id='void-tooltip'
-						data-tooltip-content={getRelative(selection.uri, accessor)}
+						data-tooltip-content={tooltipContent}
 						data-tooltip-place='top'
 						data-tooltip-delay-show={3000}
 					>
@@ -718,8 +776,11 @@ export const SelectedFiles = (
 							{<SelectionIcon size={10} />}
 
 							{ // file name and range
-								getBasename(selection.uri.fsPath)
-								+ (selection.type === 'CodeSelection' ? ` (${selection.range[0]}-${selection.range[1]})` : '')
+								(selection.type === 'Terminal'
+									? `Terminal ${selection.terminalId}`
+									: getBasename(selection.uri.fsPath)
+									+ (selection.type === 'CodeSelection' ? ` (${selection.range[0]}-${selection.range[1]})` : '')
+								)
 							}
 
 							{selection.type === 'File' && selection.state.wasAddedAsCurrentFile && messageIdx === undefined && currentURI?.fsPath === selection.uri.fsPath ?
@@ -3063,6 +3124,89 @@ export const SidebarChat = () => {
 		}
 	}, [onSubmit, onAbort, isRunning])
 
+	const workspaceContextService = accessor.get('IWorkspaceContextService')
+	const fileService = accessor.get('IFileService')
+	const languageService = accessor.get('ILanguageService')
+	const notificationService = accessor.get('INotificationService')
+
+	const onDropWorkspaceSelections = useCallback(async (e: React.DragEvent<HTMLDivElement>) => {
+		const dt = e.dataTransfer
+		const uris: URI[] = []
+
+		const uriListStr = dt.getData('text/uri-list')
+		if (uriListStr) {
+			for (const raw of UriList.parse(uriListStr)) {
+				const entry = raw.trim()
+				if (!entry) continue
+				try {
+					let uri = URI.parse(entry)
+					if (uri.scheme !== 'file') continue
+					const fsPath = uri.fsPath?.replace(/[\/\\]+$/, '')
+					if (fsPath && fsPath !== uri.fsPath) {
+						uri = URI.file(fsPath)
+					}
+					uris.push(uri)
+				} catch { }
+			}
+		}
+
+		if (!uris.length && dt.files?.length) {
+			for (const f of Array.from(dt.files)) {
+				const filePath = (f as any).path
+				if (typeof filePath !== 'string' || !filePath) continue
+				uris.push(URI.file(filePath))
+			}
+		}
+
+		const dedupedUris: URI[] = []
+		const seen = new Set<string>()
+		for (const uri of uris) {
+			const key = uri.fsPath
+			if (!key || seen.has(key)) continue
+			seen.add(key)
+			dedupedUris.push(uri)
+		}
+
+		const results = await Promise.all(dedupedUris.map(async (uri) => {
+			if (!workspaceContextService.isInsideWorkspace(uri)) {
+				return 'ignored'
+			}
+
+			let stat
+			try {
+				stat = await fileService.stat(uri)
+			} catch {
+				return 'ignored'
+			}
+
+			if (stat.isDirectory) {
+				chatThreadsService.addNewStagingSelection({ type: 'Folder', uri })
+				return 'added'
+			}
+
+			if (stat.isFile) {
+				chatThreadsService.addNewStagingSelection({
+					type: 'File',
+					uri,
+					language: languageService.guessLanguageIdByFilepathOrFirstLine(uri) || '',
+					state: { wasAddedAsCurrentFile: false },
+				})
+				return 'added'
+			}
+
+			return 'ignored'
+		}))
+
+		const added = results.filter(r => r === 'added').length
+		const ignored = results.filter(r => r === 'ignored').length
+		if (!added && !ignored) return
+
+		const messageParts: string[] = []
+		if (added) messageParts.push(`已添加 ${added} 项`)
+		if (ignored) messageParts.push(`忽略 ${ignored} 项（不在工作区或不存在）`)
+		notificationService.info(messageParts.join('，'))
+	}, [workspaceContextService, fileService, languageService, notificationService, chatThreadsService])
+
 	const inputChatArea = <VoidChatArea
 		featureName='Chat'
 		onSubmit={() => onSubmit()}
@@ -3074,6 +3218,8 @@ export const SidebarChat = () => {
 		selections={selections}
 		setSelections={setSelections}
 		onClickAnywhere={() => { textAreaRef.current?.focus() }}
+		onDrop={onDropWorkspaceSelections}
+		dropActiveLabel='松开以添加到上下文'
 	>
 		<VoidInputBox2
 			enableAtToMention

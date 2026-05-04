@@ -11,7 +11,7 @@ import { IStorageService, StorageScope, StorageTarget } from '../../../../platfo
 import { URI } from '../../../../base/common/uri.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { ILLMMessageService } from '../common/sendLLMMessageService.js';
-import { chat_userMessageContent, isABuiltinToolName } from '../common/prompt/prompts.js';
+import { chat_userMessageContent, compressChatContext_systemMessage, compressChatContext_userMessage, isABuiltinToolName } from '../common/prompt/prompts.js';
 import { AnthropicReasoning, getErrorMessage, RawToolCallObj, RawToolParamsObj } from '../common/sendLLMMessageTypes.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { FeatureName, ModelSelection, ModelSelectionOptions } from '../common/voidSettingsTypes.js';
@@ -19,6 +19,7 @@ import { IVoidSettingsService } from '../common/voidSettingsService.js';
 import { approvalTypeOfBuiltinToolName, BuiltinToolCallParams, ToolCallParams, ToolName, ToolResult } from '../common/toolsServiceTypes.js';
 import { IToolsService } from './toolsService.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
+import { CancellationError } from '../../../../base/common/errors.js';
 import { ILanguageFeaturesService } from '../../../../editor/common/services/languageFeatures.js';
 import { ChatMessage, CheckpointEntry, CodespanLocationLink, StagingSelectionItem, ToolMessage } from '../common/chatThreadServiceTypes.js';
 import { Position } from '../../../../editor/common/core/position.js';
@@ -52,9 +53,8 @@ const findStagingSelectionIndex = (currentSelections: StagingSelectionItem[] | u
 	for (let i = 0; i < currentSelections.length; i += 1) {
 		const s = currentSelections[i]
 
-		if (s.uri.fsPath !== newSelection.uri.fsPath) continue
-
 		if (s.type === 'File' && newSelection.type === 'File') {
+			if (s.uri.fsPath !== newSelection.uri.fsPath) continue
 			return i
 		}
 		if (s.type === 'CodeSelection' && newSelection.type === 'CodeSelection') {
@@ -66,6 +66,11 @@ const findStagingSelectionIndex = (currentSelections: StagingSelectionItem[] | u
 			return i
 		}
 		if (s.type === 'Folder' && newSelection.type === 'Folder') {
+			if (s.uri.fsPath !== newSelection.uri.fsPath) continue
+			return i
+		}
+		if (s.type === 'Terminal' && newSelection.type === 'Terminal') {
+			if (s.terminalId !== newSelection.terminalId) continue
 			return i
 		}
 	}
@@ -125,6 +130,12 @@ export type ThreadType = {
 
 		stagingSelections: StagingSelectionItem[];
 		focusedMessageIdx: number | undefined; // index of the user message that is being edited (undefined if none)
+
+		compressedContext?: {
+			summary: string;
+			createdAt: string;
+			includedMessages: number;
+		}
 
 		linksOfMessageIdx: { // eg. link = linksOfMessageIdx[4]['RangeFunction']
 			[messageIdx: number]: {
@@ -216,6 +227,7 @@ const newThreadObject = () => {
 			currCheckpointIdx: null,
 			stagingSelections: [],
 			focusedMessageIdx: undefined,
+			compressedContext: undefined,
 			linksOfMessageIdx: {},
 		},
 		filesWithUserChanges: new Set()
@@ -291,6 +303,7 @@ export interface IChatThreadService {
 
 	focusCurrentChat: () => Promise<void>
 	blurCurrentChat: () => Promise<void>
+	compressCurrentThreadContext: () => Promise<void>
 }
 
 export const IChatThreadService = createDecorator<IChatThreadService>('voidChatThreadService');
@@ -377,6 +390,86 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		if (!this.isCurrentlyFocusingMessage()) {
 			s?.textAreaRef.current?.blur()
 		}
+	}
+
+	async compressCurrentThreadContext() {
+		const threadId = this.state.currentThreadId
+		const thread = this.state.allThreads[threadId]
+		if (!thread) return
+
+		const modelOptions = this._currentModelSelectionProps()
+		if (!modelOptions.modelSelection) {
+			this._notificationService.warn('No model selected.')
+			return
+		}
+
+		const conversation = thread.messages
+			.filter((m) => m.role === 'user' || m.role === 'assistant')
+			.map((m) => {
+				if (m.role === 'user') return `USER:\n${m.displayContent}`
+				return `ASSISTANT:\n${m.displayContent}`
+			})
+			.join('\n\n')
+			.trim()
+
+		if (!conversation) {
+			this._notificationService.info('Nothing to compress.')
+			return
+		}
+
+		const { messages, separateSystemMessage } = this._convertToLLMMessagesService.prepareLLMSimpleMessages({
+			systemMessage: compressChatContext_systemMessage,
+			simpleMessages: [{ role: 'user', content: compressChatContext_userMessage(conversation) }],
+			modelSelection: modelOptions.modelSelection,
+			featureName: 'Chat',
+		})
+
+		const summary = await new Promise<string>((resolve, reject) => {
+			const requestId = this._llmMessageService.sendLLMMessage({
+				messagesType: 'chatMessages',
+				messages,
+				separateSystemMessage,
+				chatMode: null,
+				modelSelection: modelOptions.modelSelection,
+				modelSelectionOptions: modelOptions.modelSelectionOptions,
+				overridesOfModel: this._settingsService.state.overridesOfModel,
+				onText: () => { },
+				onFinalMessage: (params: { fullText: string }) => {
+					const match = params.fullText.match(/<output>([\s\S]*?)<\/output>/i)
+					const output = match ? match[1].trim() : ''
+					if (output) {
+						resolve(output)
+						return
+					}
+
+					const withoutTags = params.fullText
+						.replace(/<reasoning>[\s\S]*?<\/reasoning>/gi, '')
+						.replace(/<\/?output>/gi, '')
+						.replace(/<\/?reasoning>/gi, '')
+						.trim()
+					const fallback = withoutTags.split('\n').map(l => l.trim()).find(l => l.length > 0) ?? ''
+					if (fallback) {
+						resolve(fallback)
+						return
+					}
+					reject(new Error('LLM response did not contain a summary.'))
+				},
+				onError: (error) => reject(error),
+				onAbort: () => reject(new CancellationError()),
+				logging: { loggingName: 'Chat - Compress Context', loggingExtras: { threadId } },
+			})
+			if (!requestId) reject(new Error('Failed to send LLM request.'))
+		})
+
+		this._setThreadState(threadId, {
+			compressedContext: {
+				summary,
+				createdAt: new Date().toISOString(),
+				includedMessages: thread.messages.length,
+			}
+		})
+
+		this._notificationService.info('Context compressed.')
 	}
 
 
@@ -780,11 +873,18 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 
 			this._setStreamState(threadId, { isRunning: 'idle', interrupt: idleInterruptor })
 
-			const chatMessages = this.state.allThreads[threadId]?.messages ?? []
+			const currentThread = this.state.allThreads[threadId]
+			const compressedContext = currentThread?.state.compressedContext?.summary
+			const chatMessages = (() => {
+				const msgs = currentThread?.messages ?? []
+				if (!compressedContext) return msgs
+				return msgs.slice(Math.max(0, msgs.length - 30))
+			})()
 			const { messages, separateSystemMessage } = await this._convertToLLMMessagesService.prepareLLMChatMessages({
 				chatMessages,
 				modelSelection,
-				chatMode
+				chatMode,
+				compressedContext,
 			})
 
 			if (interruptedWhenIdle) {
@@ -1360,6 +1460,7 @@ We only need to do it for files that were edited since `from`, ie files between 
 			// URIs of user selections
 			if (m.role === 'user') {
 				for (const sel of m.selections ?? []) {
+					if (sel.type === 'Terminal') continue
 					addURI(sel.uri)
 				}
 			}

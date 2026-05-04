@@ -22,6 +22,13 @@ import { VOID_CTRL_L_ACTION_ID } from './actionIDs.js';
 import { localize2 } from '../../../../nls.js';
 import { IChatThreadService } from './chatThreadService.js';
 import { IViewsService } from '../../../services/views/common/viewsService.js';
+import { ITerminalService } from '../../../../workbench/contrib/terminal/browser/terminal.js';
+import { removeAnsiEscapeCodes } from '../../../../base/common/strings.js';
+import { MAX_TERMINAL_CHARS } from '../common/prompt/prompts.js';
+import { INotificationService } from '../../../../platform/notification/common/notification.js';
+import { TerminalCapability } from '../../../../platform/terminal/common/capabilities/capabilities.js';
+import { ITerminalSnippetService, VOID_TERMINAL_LAST_COMMAND_FAILED_CTX } from './terminalSnippetService.js';
+import { TERMINAL_VIEW_ID } from '../../terminal/common/terminal.js';
 
 // ---------- Register commands and keybindings ----------
 
@@ -82,6 +89,7 @@ registerAction2(class extends Action2 {
 			id: VOID_CTRL_L_ACTION_ID,
 			f1: true,
 			title: localize2('voidCmdL', 'Void: Add Selection to Chat'),
+			menu: [{ id: MenuId.EditorContext, group: 'navigation', when: ContextKeyExpr.true() }],
 			keybinding: {
 				primary: KeyMod.CtrlCmd | KeyCode.KeyL,
 				weight: KeybindingWeight.VoidExtension
@@ -139,6 +147,131 @@ registerAction2(class extends Action2 {
 		}
 
 		await chatThreadService.focusCurrentChat()
+	}
+})
+
+const VOID_ADD_TERMINAL_OUTPUT_ACTION_ID = 'void.addTerminalOutputToChat'
+registerAction2(class extends Action2 {
+	constructor() {
+		super({
+			id: VOID_ADD_TERMINAL_OUTPUT_ACTION_ID,
+			f1: true,
+			title: localize2('voidAddTerminalOutputToChat', 'Void: Add Terminal Output to Chat'),
+			menu: [{ id: MenuId.TerminalInstanceContext, group: 'navigation', when: ContextKeyExpr.true() }],
+		});
+	}
+	async run(accessor: ServicesAccessor): Promise<void> {
+		const commandService = accessor.get(ICommandService)
+		const viewsService = accessor.get(IViewsService)
+		const chatThreadService = accessor.get(IChatThreadService)
+		const terminalService = accessor.get(ITerminalService)
+		const notificationService = accessor.get(INotificationService)
+
+		const terminal = terminalService.activeInstance
+		if (!terminal?.xterm) {
+			notificationService.warn(localize2('voidNoActiveTerminal', 'No active terminal found.').value)
+			return
+		}
+
+		let result = ''
+
+		const cmdCap = terminal.capabilities.get(TerminalCapability.CommandDetection)
+		const lastCommand = cmdCap?.commands?.at(-1)
+		const cmdOutput = lastCommand?.getOutput?.()
+		if (typeof cmdOutput === 'string' && cmdOutput.trim().length > 0) {
+			const cmdLine = lastCommand?.command ? `$ ${lastCommand.command}\n` : ''
+			result = cmdLine + cmdOutput
+		} else {
+			const lines: string[] = []
+			for (const line of terminal.xterm.getBufferReverseIterator()) {
+				lines.unshift(line)
+			}
+			result = lines.join('\n')
+		}
+
+		result = removeAnsiEscapeCodes(result)
+		if (result.length > MAX_TERMINAL_CHARS) {
+			const half = MAX_TERMINAL_CHARS / 2
+			result = result.slice(0, half) + '\n...\n' + result.slice(result.length - half)
+		}
+
+		const wasAlreadyOpen = viewsService.isViewContainerVisible(VOID_VIEW_CONTAINER_ID)
+		if (!wasAlreadyOpen) {
+			await commandService.executeCommand(VOID_OPEN_SIDEBAR_ACTION_ID)
+		}
+
+		chatThreadService.addNewStagingSelection({
+			type: 'Terminal',
+			terminalId: terminal.instanceId + '',
+			content: result,
+		})
+
+		await chatThreadService.focusCurrentChat()
+		notificationService.info(localize2('voidAddedTerminalOutput', 'Added terminal output to chat context.').value)
+	}
+})
+
+const VOID_ADD_FAILED_TERMINAL_OUTPUT_ACTION_ID = 'void.addFailedTerminalOutputToChat'
+registerAction2(class extends Action2 {
+	constructor() {
+		super({
+			id: VOID_ADD_FAILED_TERMINAL_OUTPUT_ACTION_ID,
+			title: localize2('voidAddFailedTerminalOutputToChat', 'Add failed terminal output to chat'),
+			icon: { id: 'comment' },
+			menu: [{
+				id: MenuId.ViewTitle,
+				group: 'navigation',
+				when: ContextKeyExpr.and(
+					ContextKeyExpr.equals('view', TERMINAL_VIEW_ID),
+					ContextKeyExpr.equals(VOID_TERMINAL_LAST_COMMAND_FAILED_CTX, true)
+				)
+			}],
+		});
+	}
+	async run(accessor: ServicesAccessor): Promise<void> {
+		const commandService = accessor.get(ICommandService)
+		const viewsService = accessor.get(IViewsService)
+		const chatThreadService = accessor.get(IChatThreadService)
+		const terminalSnippetService = accessor.get(ITerminalSnippetService)
+		const notificationService = accessor.get(INotificationService)
+
+		const snippet = terminalSnippetService.getActiveFailedSnippet()
+		if (!snippet) return
+
+		const wasAlreadyOpen = viewsService.isViewContainerVisible(VOID_VIEW_CONTAINER_ID)
+		if (!wasAlreadyOpen) {
+			await commandService.executeCommand(VOID_OPEN_SIDEBAR_ACTION_ID)
+		}
+
+		chatThreadService.addNewStagingSelection({
+			type: 'Terminal',
+			terminalId: snippet.terminalId,
+			content: snippet.content,
+		})
+
+		await chatThreadService.focusCurrentChat()
+		notificationService.info(localize2('voidAddedFailedTerminalOutput', 'Added failed terminal output to chat context.').value)
+	}
+})
+
+const VOID_COMPRESS_CHAT_CONTEXT_ACTION_ID = 'void.compressChatContext'
+registerAction2(class extends Action2 {
+	constructor() {
+		super({
+			id: VOID_COMPRESS_CHAT_CONTEXT_ACTION_ID,
+			f1: true,
+			title: localize2('voidCompressChatContext', 'Void: Compress Chat Context'),
+			icon: { id: 'collapse-all' },
+			menu: [{
+				id: MenuId.ViewTitle,
+				group: 'navigation',
+				when: ContextKeyExpr.equals('view', VOID_VIEW_ID),
+			}],
+		});
+	}
+	async run(accessor: ServicesAccessor): Promise<void> {
+		const chatThreadService = accessor.get(IChatThreadService)
+		await chatThreadService.compressCurrentThreadContext()
 	}
 })
 

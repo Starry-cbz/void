@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Void Chat UI Preview</title>
+    <link rel="stylesheet" href="/src/vs/workbench/contrib/void/browser/react/src2/styles.css" />
+    <style>
+      :root {
+        --vscode-input-background: #1f1f1f;
+        --vscode-input-foreground: #cccccc;
+        --vscode-input-placeholderForeground: #8b8b8b;
+        --vscode-editor-background: #1e1e1e;
+        --vscode-editor-foreground: #d4d4d4;
+        --vscode-sideBar-background: #181818;
+        --vscode-badge-background: #4d4d4d;
+        --vscode-tab-activeForeground: #ffffff;
+        --vscode-list-deemphasizedForeground: #9aa0a6;
+        --vscode-charts-yellow: #cca700;
+        --vscode-commandCenter-activeBorder: #3c3c3c;
+        --vscode-commandCenter-border: #2a2a2a;
+        --vscode-commandCenter-inactiveBorder: #2a2a2a;
+        --vscode-editorGroup-border: #2a2a2a;
+        --vscode-disabledForeground: #6b6b6b;
+      }
+
+      body {
+        margin: 0;
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto,
+          Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+        background: #0f0f0f;
+        color: #d4d4d4;
+      }
+
+      .page {
+        padding: 20px;
+        max-width: 980px;
+        margin: 0 auto;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+      }
+
+      .label {
+        opacity: 0.8;
+        font-size: 12px;
+        margin: 0 0 8px 0;
+      }
+
+      .icon {
+        width: 10px;
+        height: 10px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 2px;
+        background: rgba(255, 255, 255, 0.12);
+        font-size: 8px;
+        line-height: 10px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <div class="void-scope void-dark">
+        <div class="grid">
+          <div>
+            <p class="label">聊天输入框（正常态）+ selections chips（File/Folder/Code/Terminal）</p>
+
+            <div
+              class="void-gap-x-1 void-flex void-flex-col void-p-2 void-relative void-input void-text-left void-shrink-0 void-rounded-md void-bg-void-bg-1 void-transition-all void-duration-200 void-border void-border-void-border-3 hover:void-border-void-border-1 void-max-h-[80vh] void-overflow-y-auto">
+              <div class="void-flex void-items-center void-flex-wrap void-text-left void-relative void-gap-x-0.5 void-gap-y-1 void-pb-0.5">
+                <div class="void-flex void-flex-col void-space-y-[1px]">
+                  <div
+                    class="void-flex void-items-center void-gap-1 void-relative void-px-1 void-w-fit void-h-fit void-select-none void-text-xs void-text-nowrap void-border void-rounded-sm void-bg-void-bg-1 hover:void-brightness-95 void-text-void-fg-1 void-border-void-border-1 hover:void-border-void-border-1 void-transition-all void-duration-150">
+                    <span class="icon">F</span>
+                    index.ts
+                    <span class="void-ml-1 void-opacity-60">×</span>
+                  </div>
+                </div>
+
+                <div class="void-flex void-flex-col void-space-y-[1px]">
+                  <div
+                    class="void-flex void-items-center void-gap-1 void-relative void-px-1 void-w-fit void-h-fit void-select-none void-text-xs void-text-nowrap void-border void-rounded-sm void-bg-void-bg-1 hover:void-brightness-95 void-text-void-fg-1 void-border-void-border-1 hover:void-border-void-border-1 void-transition-all void-duration-150">
+                    <span class="icon">D</span>
+                    src/
+                    <span class="void-ml-1 void-opacity-60">×</span>
+                  </div>
+                </div>
+
+                <div class="void-flex void-flex-col void-space-y-[1px]">
+                  <div
+                    class="void-flex void-items-center void-gap-1 void-relative void-px-1 void-w-fit void-h-fit void-select-none void-text-xs void-text-nowrap void-border void-rounded-sm void-bg-void-bg-1 hover:void-brightness-95 void-text-void-fg-1 void-border-void-border-1 hover:void-border-void-border-1 void-transition-all void-duration-150">
+                    <span class="icon">C</span>
+                    SidebarChat.tsx (3100-3170)
+                    <span class="void-ml-1 void-opacity-60">×</span>
+                  </div>
+                </div>
+
+                <div class="void-flex void-flex-col void-space-y-[1px]">
+                  <div
+                    class="void-flex void-items-center void-gap-1 void-relative void-px-1 void-w-fit void-h-fit void-select-none void-text-xs void-text-nowrap void-border void-rounded-sm void-bg-void-bg-1 hover:void-brightness-95 void-text-void-fg-1 void-border-void-border-1 hover:void-border-void-border-1 void-transition-all void-duration-150">
+                    <span class="icon">T</span>
+                    Terminal 1
+                    <span class="void-ml-1 void-opacity-60">×</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="void-relative void-w-full">
+                <textarea
+                  class="void-w-full void-min-h-[81px] void-rounded void-bg-void-bg-3 void-text-void-fg-1 void-border void-border-void-border-2 void-p-2"
+                  placeholder="Enter instructions..."
+                  rows="3"></textarea>
+              </div>
+
+              <div class="void-flex void-flex-row void-justify-between void-items-end void-gap-1">
+                <div class="void-text-xs void-text-void-fg-3">Chat / Model dropdown 区域</div>
+                <div class="void-flex void-items-center void-gap-2">
+                  <button
+                    type="button"
+                    class="void-rounded-full void-flex-shrink-0 void-flex-grow-0 void-flex void-items-center void-justify-center void-bg-white void-cursor-pointer void-w-[22px] void-h-[22px]">
+                    →
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <p class="label">拖拽悬停态（Drop overlay）</p>
+            <div
+              class="void-gap-x-1 void-flex void-flex-col void-p-2 void-relative void-input void-text-left void-shrink-0 void-rounded-md void-bg-void-bg-1 void-transition-all void-duration-200 void-border void-border-void-border-1 void-ring-1 void-ring-void-border-1 void-max-h-[80vh] void-overflow-y-auto">
+              <div
+                class="void-absolute void-inset-0 void-z-10 void-pointer-events-none void-flex void-items-center void-justify-center void-rounded-md void-bg-void-bg-1/60 void-backdrop-blur-[1px]">
+                <div
+                  class="void-px-2 void-py-1 void-rounded void-text-xs void-text-void-fg-3 void-bg-void-bg-3 void-border void-border-void-border-2">
+                  松开以添加到上下文
+                </div>
+              </div>
+
+              <div class="void-relative void-w-full">
+                <textarea
+                  class="void-w-full void-min-h-[81px] void-rounded void-bg-void-bg-3 void-text-void-fg-1 void-border void-border-void-border-2 void-p-2"
+                  placeholder="拖拽文件/文件夹到这里…"
+                  rows="3"></textarea>
+              </div>
+
+              <div class="void-flex void-flex-row void-justify-between void-items-end void-gap-1">
+                <div class="void-text-xs void-text-void-fg-3">Drop 时遮罩会阻止点击</div>
+                <div class="void-flex void-items-center void-gap-2">
+                  <button
+                    type="button"
+                    class="void-rounded-full void-flex-shrink-0 void-flex-grow-0 void-flex void-items-center void-justify-center void-bg-white void-cursor-pointer void-w-[22px] void-h-[22px]">
+                    →
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <p class="label" style="margin-top: 12px">
+              说明：终端右上角“失败一键加入对话”与聊天右上角“Compress Chat Context”属于 VS Code
+              toolbar icon（非 Tailwind DOM），这里用截图预览只能展示输入框/selection chip/拖拽态的样式。
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
+

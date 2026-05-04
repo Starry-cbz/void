@@ -1,22 +1,14 @@
 import assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-
-const importGitDiffSampling = async () => {
-	try {
-		return await import('../../common/gitDiffSampling.js');
-	} catch {
-		return await import('../../common/gitDiffSampling');
-	}
-};
+import { buildGitDiffFileArgs, getGitSampledDiffs, parseGitDiffNumStatZ } from '../../common/gitDiffSampling.js';
+import type { RunGit } from '../../common/gitDiffSampling.js';
 
 suite('Void Git Diff Sampling', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
 
 	test('empty changes returns empty output and does not request per-file diff', async () => {
-		const { getGitSampledDiffs } = await importGitDiffSampling();
-
 		const calls: string[][] = [];
-		const runGit = async (args: readonly string[]): Promise<string> => {
+		const runGit: RunGit = async (args) => {
 			calls.push([...args]);
 			if (args.includes('--numstat')) {
 				return '';
@@ -29,7 +21,7 @@ suite('Void Git Diff Sampling', () => {
 			useStagedChanges: false,
 			maxFiles: 10,
 			maxDiffLength: 8000,
-			runGit: (args) => runGit(args),
+			runGit,
 		});
 
 		assert.strictEqual(result, '');
@@ -38,14 +30,12 @@ suite('Void Git Diff Sampling', () => {
 	});
 
 	test('rename uses new path and builds safe diff args', async () => {
-		const { getGitSampledDiffs, parseGitDiffNumStatZ } = await importGitDiffSampling();
-
 		const numstatZ = `1\t0\t\0old name.txt\0new name.txt\0`;
 		const entries = parseGitDiffNumStatZ(numstatZ);
-		assert.deepStrictEqual(entries.map(e => e.file), ['new name.txt']);
+		assert.deepStrictEqual(entries.map(({ file }) => file), ['new name.txt']);
 
 		const calls: string[][] = [];
-		const runGit = async (args: readonly string[]): Promise<string> => {
+		const runGit: RunGit = async (args) => {
 			calls.push([...args]);
 			if (args.includes('--numstat')) {
 				return numstatZ;
@@ -61,7 +51,7 @@ suite('Void Git Diff Sampling', () => {
 			useStagedChanges: true,
 			maxFiles: 10,
 			maxDiffLength: 8000,
-			runGit: (args) => runGit(args),
+			runGit,
 		});
 
 		assert.ok(result.includes('==== new name.txt ===='));
@@ -70,11 +60,9 @@ suite('Void Git Diff Sampling', () => {
 	});
 
 	test('binary diff failure is skipped without failing the whole call', async () => {
-		const { getGitSampledDiffs } = await importGitDiffSampling();
-
 		const numstatZ = `-\t-\t\0bin.dat\0`;
 		const calls: string[][] = [];
-		const runGit = async (args: readonly string[]): Promise<string> => {
+		const runGit: RunGit = async (args) => {
 			calls.push([...args]);
 			if (args.includes('--numstat')) {
 				return numstatZ;
@@ -87,7 +75,7 @@ suite('Void Git Diff Sampling', () => {
 			useStagedChanges: false,
 			maxFiles: 10,
 			maxDiffLength: 8000,
-			runGit: (args) => runGit(args),
+			runGit,
 		});
 
 		assert.strictEqual(result, '');
@@ -95,8 +83,6 @@ suite('Void Git Diff Sampling', () => {
 	});
 
 	test('special filename remains a raw argv element (no quoting needed)', async () => {
-		const { buildGitDiffFileArgs } = await importGitDiffSampling();
-
 		const file = 'a; $(touch /tmp/pwn) && echo 1';
 		const args = buildGitDiffFileArgs(file, false);
 		assert.strictEqual(args.at(-1), file);

@@ -2,6 +2,8 @@ import assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { chat_systemMessage, ctrlKStream_systemMessage } from '../../common/prompt/prompts.js';
 import { buildEnhancedContext } from '../../common/enhancedContext.js';
+import { URI } from '../../../../../base/common/uri.js';
+import { Range } from '../../../../../editor/common/core/range.js';
 
 suite('Void Cursor Prompts - Static Verification', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
@@ -33,12 +35,16 @@ suite('Void Cursor Prompts - Static Verification', () => {
 				enhancedContextIncludeScmChangedFiles: true,
 				enhancedContextIncludeCodeSnippet: true,
 				enhancedContextIncludeTerminalSummary: true,
+				enhancedContextIncludeDiffSummary: true,
+				enhancedContextIncludeRecentFiles: true,
 			},
 			{
 				diagnostics: '- Errors: 1\n- Warnings: 2',
 				scm: 'Changed files (1/1):\n- /workspace/foo.ts',
 				editor: 'File: /workspace/foo.ts\nPosition: L1:1',
 				terminal: 'Recent commands (active terminal):\n- npm test (exitCode: 0)',
+				diff: { stat: '1 file changed', sampledDiffs: '==== foo.ts ====\n@@\n+hi\n' },
+				recentFiles: [{ uri: URI.file('/workspace/foo.ts'), timestamp: 1000, range: new Range(1, 1, 1, 2) }],
 			}
 		);
 
@@ -64,24 +70,34 @@ suite('Void Cursor Prompts - Static Verification', () => {
 
 	test('cursor chat system message removes partitions when corresponding toggle is disabled', () => {
 		const cases: Array<{
-			name: 'SCM' | 'Editor' | 'Terminal';
-			settings: { enhancedContextIncludeScmChangedFiles: boolean; enhancedContextIncludeCodeSnippet: boolean; enhancedContextIncludeTerminalSummary: boolean };
+			name: 'SCM' | 'Editor' | 'Terminal' | 'Diff' | 'RecentFiles';
+			settings: { enhancedContextIncludeScmChangedFiles: boolean; enhancedContextIncludeCodeSnippet: boolean; enhancedContextIncludeTerminalSummary: boolean; enhancedContextIncludeDiffSummary: boolean; enhancedContextIncludeRecentFiles: boolean };
 			absentTag: string;
 		}> = [
 			{
 				name: 'SCM',
-				settings: { enhancedContextIncludeScmChangedFiles: false, enhancedContextIncludeCodeSnippet: true, enhancedContextIncludeTerminalSummary: true },
+				settings: { enhancedContextIncludeScmChangedFiles: false, enhancedContextIncludeCodeSnippet: true, enhancedContextIncludeTerminalSummary: true, enhancedContextIncludeDiffSummary: true, enhancedContextIncludeRecentFiles: true },
 				absentTag: '<SCM>',
 			},
 			{
 				name: 'Editor',
-				settings: { enhancedContextIncludeScmChangedFiles: true, enhancedContextIncludeCodeSnippet: false, enhancedContextIncludeTerminalSummary: true },
+				settings: { enhancedContextIncludeScmChangedFiles: true, enhancedContextIncludeCodeSnippet: false, enhancedContextIncludeTerminalSummary: true, enhancedContextIncludeDiffSummary: true, enhancedContextIncludeRecentFiles: true },
 				absentTag: '<Editor>',
 			},
 			{
 				name: 'Terminal',
-				settings: { enhancedContextIncludeScmChangedFiles: true, enhancedContextIncludeCodeSnippet: true, enhancedContextIncludeTerminalSummary: false },
+				settings: { enhancedContextIncludeScmChangedFiles: true, enhancedContextIncludeCodeSnippet: true, enhancedContextIncludeTerminalSummary: false, enhancedContextIncludeDiffSummary: true, enhancedContextIncludeRecentFiles: true },
 				absentTag: '<Terminal>',
+			},
+			{
+				name: 'Diff',
+				settings: { enhancedContextIncludeScmChangedFiles: true, enhancedContextIncludeCodeSnippet: true, enhancedContextIncludeTerminalSummary: true, enhancedContextIncludeDiffSummary: false, enhancedContextIncludeRecentFiles: true },
+				absentTag: '<Diff>',
+			},
+			{
+				name: 'RecentFiles',
+				settings: { enhancedContextIncludeScmChangedFiles: true, enhancedContextIncludeCodeSnippet: true, enhancedContextIncludeTerminalSummary: true, enhancedContextIncludeDiffSummary: true, enhancedContextIncludeRecentFiles: false },
+				absentTag: '<RecentFiles>',
 			},
 		];
 
@@ -96,6 +112,8 @@ suite('Void Cursor Prompts - Static Verification', () => {
 					scm: 'Changed files (1/1):\n- /workspace/foo.ts',
 					editor: 'File: /workspace/foo.ts\nPosition: L1:1',
 					terminal: 'Recent commands (active terminal):\n- npm test (exitCode: 0)',
+					diff: { stat: '1 file changed', sampledDiffs: '==== foo.ts ====\n@@\n+hi\n' },
+					recentFiles: [{ uri: URI.file('/workspace/foo.ts'), timestamp: 1000, range: new Range(1, 1, 1, 2) }],
 				}
 			);
 

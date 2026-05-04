@@ -455,6 +455,8 @@ export type GlobalSettings = {
 	showInlineSuggestions: boolean;
 	includeToolLintErrors: boolean;
 	isOnboardingComplete: boolean;
+	enhancedContextIncludeDiffSummary: boolean;
+	enhancedContextIncludeRecentFiles: boolean;
 	disableSystemMessage: boolean;
 	autoAcceptLLMChanges: boolean;
 }
@@ -476,6 +478,8 @@ export const defaultGlobalSettings: GlobalSettings = {
 	showInlineSuggestions: true,
 	includeToolLintErrors: true,
 	isOnboardingComplete: false,
+	enhancedContextIncludeDiffSummary: true,
+	enhancedContextIncludeRecentFiles: true,
 	disableSystemMessage: false,
 	autoAcceptLLMChanges: false,
 }

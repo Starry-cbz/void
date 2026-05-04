@@ -1527,6 +1527,39 @@ Alternatively, place a \`.voidrules\` file in the root of your workspace.
 											{`When disabled, Void will not include anything in the system message except for content you specified above.`}
 										</div>
 									</div>
+									<div className={`my-4 ${settingsState.globalSettings.disableSystemMessage ? 'opacity-50 pointer-events-none' : ''}`}>
+										<ErrorBoundary>
+											<div className='flex items-center gap-x-2 my-2'>
+												<VoidSwitch
+													size='xs'
+													value={!!settingsState.globalSettings.enhancedContextIncludeDiffSummary}
+													onChange={(newValue) => {
+														voidSettingsService.setGlobalSetting('enhancedContextIncludeDiffSummary', newValue);
+													}}
+												/>
+												<span className='text-void-fg-3 text-xs pointer-events-none'>
+													{'Include diff summary in enhanced context'}
+												</span>
+											</div>
+										</ErrorBoundary>
+										<ErrorBoundary>
+											<div className='flex items-center gap-x-2 my-2'>
+												<VoidSwitch
+													size='xs'
+													value={!!settingsState.globalSettings.enhancedContextIncludeRecentFiles}
+													onChange={(newValue) => {
+														voidSettingsService.setGlobalSetting('enhancedContextIncludeRecentFiles', newValue);
+													}}
+												/>
+												<span className='text-void-fg-3 text-xs pointer-events-none'>
+													{'Include recent files in enhanced context'}
+												</span>
+											</div>
+										</ErrorBoundary>
+										<div className='text-void-fg-3 text-xs mt-1'>
+											{`When enabled, Void will automatically attach a Cursor-style <enhanced_context> to your requests.`}
+										</div>
+									</div>
 								</div>
 
 								<div className='max-w-[600px]'>

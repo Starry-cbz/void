@@ -1,8 +1,12 @@
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { deepClone } from '../../../../base/common/objects.js';
+import { ProxyChannel } from '../../../../base/parts/ipc/common/ipc.js';
 import { IModelService } from '../../../../editor/common/services/model.js';
+import { ITextModel } from '../../../../editor/common/model.js';
+import { ICodeEditorService } from '../../../../editor/browser/services/codeEditorService.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
+import { IMainProcessService } from '../../../../platform/ipc/common/mainProcessService.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { ChatMessage } from '../common/chatThreadServiceTypes.js';
@@ -21,11 +25,11 @@ import { IMCPService } from '../common/mcpService.js';
 import { IMarkerService, MarkerSeverity } from '../../../../platform/markers/common/markers.js';
 import { ISCMService } from '../../scm/common/scm.js';
 import { ITerminalSnippetService } from './terminalSnippetService.js';
-import { ICodeEditorService } from '../../../../editor/browser/services/codeEditorService.js';
 import { Range } from '../../../../editor/common/core/range.js';
 import { ITerminalService } from '../../terminal/browser/terminal.js';
 import { TerminalCapability } from '../../../../platform/terminal/common/capabilities/capabilities.js';
-import { buildEnhancedContext } from '../common/enhancedContext.js';
+import { buildEnhancedContext, DEFAULT_DIFF_CACHE_TTL_MS, DEFAULT_MAX_RECENT_FILES, DiffSummary, DiffSummaryCache, RecentFileEntry, RecentFilesTracker } from '../common/enhancedContext.js';
+import { IVoidSCMService } from '../common/voidSCMTypes.js';
 
 export const EMPTY_MESSAGE = '(empty message)'
 
@@ -582,6 +586,10 @@ export const IConvertToLLMMessageService = createDecorator<IConvertToLLMMessageS
 
 class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMessageService {
 	_serviceBrand: undefined;
+	private readonly voidSCM: IVoidSCMService;
+	private readonly diffCache = new DiffSummaryCache(DEFAULT_DIFF_CACHE_TTL_MS);
+	private diffInFlight: Promise<DiffSummary | null> | null = null;
+	private readonly recentFilesTracker = new RecentFilesTracker(DEFAULT_MAX_RECENT_FILES);
 
 	constructor(
 		@IModelService private readonly modelService: IModelService,
@@ -597,8 +605,11 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		@IMarkerService private readonly markerService: IMarkerService,
 		@ISCMService private readonly scmService: ISCMService,
 		@ITerminalSnippetService private readonly terminalSnippetService: ITerminalSnippetService,
+		@IMainProcessService mainProcessService: IMainProcessService,
 	) {
 		super()
+		this.voidSCM = ProxyChannel.toService<IVoidSCMService>(mainProcessService.getChannel('void-channel-scm'))
+		this._registerRecentFilesTracking()
 	}
 
 	// Read .voidrules files from workspace folders
@@ -775,22 +786,117 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		return _limitText(parts.join('\n\n'), { maxChars: ENHANCED_CONTEXT_TERMINAL_MAX_CHARS }).text || null
 	}
 
-	private _getEnhancedContext(): string | undefined {
+	private _registerRecentFilesTracking(): void {
+		this.modelService.getModels().forEach(model => this._subscribeToModelForRecentFiles(model));
+		this._register(this.modelService.onModelAdded(model => this._subscribeToModelForRecentFiles(model)));
+
+		const subscribeEditor = (editor: any) => {
+			this._register(editor.onDidChangeCursorSelection(() => {
+				const model = editor.getModel?.();
+				if (!model) {
+					return;
+				}
+				const selection = editor.getSelection?.() ?? null;
+				this._recordRecentFile(model.uri, selection);
+			}));
+		};
+
+		for (const editor of this.codeEditorService.listCodeEditors()) {
+			subscribeEditor(editor);
+		}
+		this._register(this.codeEditorService.onCodeEditorAdd(editor => subscribeEditor(editor)));
+	}
+
+	private _subscribeToModelForRecentFiles(model: ITextModel): void {
+		if (model.uri.scheme !== 'file') {
+			return;
+		}
+
+		this._register(model.onDidChangeContent(() => {
+			const focused = this.codeEditorService.getFocusedCodeEditor();
+			const selection = focused?.getModel() === model ? focused.getSelection() : null;
+			this._recordRecentFile(model.uri, selection);
+		}));
+	}
+
+	private _recordRecentFile(uri: URI, range: any): void {
+		if (uri.scheme !== 'file') {
+			return;
+		}
+
+		const entry: RecentFileEntry = {
+			uri,
+			timestamp: Date.now(),
+			range: range ?? null,
+		};
+
+		this.recentFilesTracker.record(entry);
+	}
+
+	private async _getDiffSummary(workspaceFolders: string[]): Promise<DiffSummary | null> {
+		const cached = this.diffCache.getEntry();
+		if (cached.hit) {
+			return cached.value;
+		}
+
+		if (this.diffInFlight) {
+			return this.diffInFlight;
+		}
+
+		const cwd = workspaceFolders[0];
+		if (!cwd) {
+			this.diffCache.set(null);
+			return null;
+		}
+
+		this.diffInFlight = (async () => {
+			try {
+				const [statRaw, sampledDiffsRaw] = await Promise.all([
+					this.voidSCM.gitStat(cwd),
+					this.voidSCM.gitSampledDiffs(cwd),
+				]);
+
+				const stat = (statRaw ?? '').trim();
+				const sampledDiffs = (sampledDiffsRaw ?? '').trim();
+				const summary = stat || sampledDiffs ? { stat, sampledDiffs } : null;
+				this.diffCache.set(summary);
+				return summary;
+			} catch {
+				this.diffCache.set(null);
+				return null;
+			}
+		})().finally(() => {
+			this.diffInFlight = null;
+		});
+
+		return this.diffInFlight;
+	}
+
+	private async _getEnhancedContext(workspaceFolders: string[]): Promise<string | undefined> {
 		const settings = this.voidSettingsService.state.globalSettings;
+		const diff = settings.enhancedContextIncludeDiffSummary ? await this._getDiffSummary(workspaceFolders) : null;
+		const recentFiles = settings.enhancedContextIncludeRecentFiles ? this.recentFilesTracker.getRecentFiles() : [];
+
 		return buildEnhancedContext(
 			{
 				enableEnhancedContext: settings.enableEnhancedContext,
 				enhancedContextIncludeScmChangedFiles: settings.enhancedContextIncludeScmChangedFiles,
 				enhancedContextIncludeCodeSnippet: settings.enhancedContextIncludeCodeSnippet,
 				enhancedContextIncludeTerminalSummary: settings.enhancedContextIncludeTerminalSummary,
+				enhancedContextIncludeDiffSummary: settings.enhancedContextIncludeDiffSummary,
+				enhancedContextIncludeRecentFiles: settings.enhancedContextIncludeRecentFiles,
+				maxRecentFiles: DEFAULT_MAX_RECENT_FILES,
 			},
 			{
 				diagnostics: this._getDiagnosticsSummary(),
 				scm: this._getScmChangedFilesSummary(),
 				editor: this._getEditorSnippetSummary(),
 				terminal: this._getTerminalSummary(),
+				diff,
+				recentFiles,
 			}
 		);
+	}
 	}
 
 
@@ -813,9 +919,8 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 
 		const persistentTerminalIDs = this.terminalToolService.listPersistentTerminalIds()
 		const { promptStyle } = this.voidSettingsService.state.globalSettings
-		const enhancedContext = this._getEnhancedContext()
-		const systemMessage = chat_systemMessage({ workspaceFolders, openedURIs, directoryStr, activeURI, persistentTerminalIDs, chatMode, mcpTools, includeXMLToolDefinitions, promptStyle, enhancedContext })
-		return systemMessage
+		const enhancedContext = await this._getEnhancedContext(workspaceFolders)
+		return chat_systemMessage({ workspaceFolders, openedURIs, directoryStr, activeURI, persistentTerminalIDs, chatMode, mcpTools, includeXMLToolDefinitions, promptStyle, enhancedContext })
 	}
 
 

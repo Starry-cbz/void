@@ -1,0 +1,6 @@
+- [x] `<enhanced_context>` 新增 `Diff` 与 `RecentFiles` 分区，且遵循“缺失即省略”
+- [x] 新增全局开关：`enhancedContextIncludeDiffSummary` / `enhancedContextIncludeRecentFiles`（默认 true），并在设置页可配置
+- [x] Diff 分区包含 stat + sampled diffs，且有文件数/总长度上限与缓存节流
+- [x] RecentFiles 分区包含路径 + 最近编辑时间 + 最后编辑位置，且有 LRU 上限与稳定排序
+- [x] 关闭任一开关会移除对应分区，不影响其它分区
+- [x] 类型检查与关键测试子集通过

@@ -1,0 +1,7 @@
+- [x] git 命令以非 shell 方式执行，特殊文件名不会导致展开/失败
+- [x] git stderr warning 不会中断生成流程（仅非零退出码视为失败）
+- [x] 空变更时 `gitSampledDiffs` 输出稳定且不会产生 `undefined` pathspec
+- [x] rename/binary 场景下采样 diff 逻辑可降级且不会导致整体失败
+- [x] SCM 提示词对 `.voidrules`/全局指令的冲突具备明确优先级，`<output>` 约束不失效
+- [x] `<output>` 缺失时不会写入空字符串到 SCM 输入框，并提供兜底或错误提示
+- [x] 新增/更新的测试覆盖上述关键路径，并在仓库现有测试框架下可运行

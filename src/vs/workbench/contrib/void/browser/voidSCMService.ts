@@ -150,7 +150,24 @@ class GenerateCommitMessageService extends Disposable implements IGenerateCommit
 				onFinalMessage: (params: { fullText: string }) => {
 					const match = params.fullText.match(/<output>([\s\S]*?)<\/output>/i)
 					const commitMessage = match ? match[1].trim() : ''
-					resolve(commitMessage)
+					if (commitMessage) {
+						resolve(commitMessage)
+						return
+					}
+
+					const withoutTags = params.fullText
+						.replace(/<reasoning>[\s\S]*?<\/reasoning>/gi, '')
+						.replace(/<\/?output>/gi, '')
+						.replace(/<\/?reasoning>/gi, '')
+						.trim()
+					const fallback = withoutTags.split('\n').map(l => l.trim()).find(l => l.length > 0) ?? ''
+
+					if (fallback) {
+						resolve(fallback)
+						return
+					}
+
+					reject(new Error('LLM response did not contain a commit message.'))
 				},
 				onError: (error) => {
 					console.error(error)

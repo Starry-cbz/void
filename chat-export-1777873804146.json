@@ -1,0 +1,503 @@
+{
+  "success": true,
+  "request_id": "a3499a22-af62-481c-ad72-1c8b6a3a78f4",
+  "data": [
+    {
+      "id": "5bd79ae7-3660-4984-9185-32cbaa095215",
+      "user_id": "d9ec8ec9-d732-480b-b57a-918821502bc9",
+      "title": "第一次对话思考",
+      "chat": {
+        "history": {
+          "messages": {
+            "668326c7-420e-46a9-b4fb-bac37a77e50e": {
+              "id": "668326c7-420e-46a9-b4fb-bac37a77e50e",
+              "role": "user",
+              "content": "请输出thinking*第一次对话",
+              "models": [
+                "qwen3.6-plus"
+              ],
+              "chat_type": "t2t",
+              "sub_chat_type": "t2t",
+              "edited": false,
+              "error": null,
+              "extra": {
+                "meta": {
+                  "subChatType": "t2t"
+                }
+              },
+              "feature_config": {
+                "thinking_enabled": true,
+                "output_schema": "phase",
+                "instructions": null,
+                "research_mode": "normal",
+                "auto_thinking": false,
+                "thinking_mode": "Thinking",
+                "thinking_format": "summary",
+                "auto_search": true
+              },
+              "parentId": null,
+              "turn_id": null,
+              "childrenIds": [
+                "9d12ebe5-57d0-4e47-82c5-67910ee1be41"
+              ],
+              "files": [],
+              "timestamp": 1777873780
+            },
+            "9d12ebe5-57d0-4e47-82c5-67910ee1be41": {
+              "role": "assistant",
+              "content": "",
+              "reasoning_content": null,
+              "chat_type": "t2t",
+              "sub_chat_type": "t2t",
+              "model": "qwen3.6-plus",
+              "modelName": "Qwen3.6-Plus",
+              "modelIdx": 0,
+              "id": "9d12ebe5-57d0-4e47-82c5-67910ee1be41",
+              "parentId": "668326c7-420e-46a9-b4fb-bac37a77e50e",
+              "childrenIds": [
+                "bcdc52b9-42a5-4396-9282-1b00472fad4f"
+              ],
+              "feature_config": {
+                "thinking_enabled": true,
+                "output_schema": "phase",
+                "instructions": null,
+                "research_mode": "normal",
+                "auto_thinking": false,
+                "thinking_mode": "Thinking",
+                "thinking_format": "summary",
+                "auto_search": true
+              },
+              "content_list": [
+                {
+                  "content": "",
+                  "phase": "thinking_summary",
+                  "status": "finished",
+                  "extra": {
+                    "summary_title": {
+                      "content": [
+                        "启动思维流程",
+                        "输出指定内容",
+                        "输出指定字符串"
+                      ]
+                    },
+                    "summary_thought": {
+                      "content": [
+                        "我正在理解用户提出的请求，识别其核心意图。  \n通过解析语言表达，我确认用户希望输出特定的文本内容。  \n整个过程聚焦于准确响应，确保表达自然流畅。",
+                        "我正在理解用户请求的核心意图，确认其希望获得精确的文本响应。  \n我排除了潜在的格式干扰，聚焦于传达原始信息的本质。  \n最终以简洁准确的方式呈现所要求的内容。",
+                        "我正在精确执行用户指令，确保输出内容与要求完全一致。  \n不附加任何解释或额外信息，仅呈现原始文本。  \n整个过程保持简洁、直接，忠实于用户需求。"
+                      ]
+                    }
+                  },
+                  "role": "assistant",
+                  "response_id": "9d12ebe5-57d0-4e47-82c5-67910ee1be41",
+                  "usage": {
+                    "input_tokens": 28,
+                    "output_tokens": 349,
+                    "characters": 0,
+                    "total_tokens": 377,
+                    "input_tokens_details": {
+                      "text_tokens": 28
+                    },
+                    "output_tokens_details": {
+                      "reasoning_tokens": 340,
+                      "text_tokens": 349
+                    }
+                  },
+                  "timestamp": 1777873787
+                },
+                {
+                  "content": "thinking*第一次对话",
+                  "phase": "answer",
+                  "status": "finished",
+                  "extra": null,
+                  "role": "assistant",
+                  "response_id": "9d12ebe5-57d0-4e47-82c5-67910ee1be41",
+                  "usage": {
+                    "input_tokens": 28,
+                    "output_tokens": 349,
+                    "characters": 0,
+                    "total_tokens": 377,
+                    "input_tokens_details": {
+                      "text_tokens": 28
+                    },
+                    "output_tokens_details": {
+                      "reasoning_tokens": 340,
+                      "text_tokens": 349
+                    }
+                  },
+                  "timestamp": 1777873787
+                }
+              ],
+              "is_stop": false,
+              "edited": false,
+              "error": null,
+              "meta": {},
+              "extra": {
+                "meta": {
+                  "subChatType": "t2t"
+                },
+                "endTime": 1777873787.600104
+              },
+              "feedbackId": null,
+              "turn_id": null,
+              "annotation": null,
+              "done": true,
+              "info": null,
+              "timestamp": 1777873780
+            },
+            "a7a46a41-f777-44fc-95cd-139729d950c9": {
+              "role": "assistant",
+              "content": "",
+              "reasoning_content": null,
+              "chat_type": "t2t",
+              "sub_chat_type": "t2t",
+              "model": "qwen3.6-plus",
+              "modelName": "Qwen3.6-Plus",
+              "modelIdx": 0,
+              "id": "a7a46a41-f777-44fc-95cd-139729d950c9",
+              "parentId": "bcdc52b9-42a5-4396-9282-1b00472fad4f",
+              "childrenIds": [],
+              "feature_config": {
+                "thinking_enabled": false,
+                "output_schema": "phase",
+                "instructions": null,
+                "research_mode": "normal",
+                "auto_thinking": false,
+                "thinking_mode": "Fast",
+                "auto_search": true
+              },
+              "content_list": [
+                {
+                  "content": "fast*第二次对话",
+                  "phase": "answer",
+                  "status": "finished",
+                  "extra": null,
+                  "role": "assistant",
+                  "response_id": "a7a46a41-f777-44fc-95cd-139729d950c9",
+                  "usage": {
+                    "input_tokens": 566,
+                    "output_tokens": 4,
+                    "characters": 0,
+                    "total_tokens": 570,
+                    "input_tokens_details": {
+                      "text_tokens": 566
+                    },
+                    "output_tokens_details": {
+                      "text_tokens": 4
+                    }
+                  },
+                  "timestamp": 1777873797
+                }
+              ],
+              "is_stop": false,
+              "edited": false,
+              "error": null,
+              "meta": {},
+              "extra": {
+                "meta": {
+                  "subChatType": "t2t"
+                },
+                "endTime": 1777873797.697932
+              },
+              "feedbackId": null,
+              "turn_id": null,
+              "annotation": null,
+              "done": true,
+              "info": null,
+              "timestamp": 1777873796
+            },
+            "bcdc52b9-42a5-4396-9282-1b00472fad4f": {
+              "id": "bcdc52b9-42a5-4396-9282-1b00472fad4f",
+              "role": "user",
+              "content": "请输出fast*第二次对话",
+              "models": [
+                "qwen3.6-plus"
+              ],
+              "chat_type": "t2t",
+              "sub_chat_type": "t2t",
+              "edited": false,
+              "error": null,
+              "extra": {
+                "meta": {
+                  "subChatType": "t2t"
+                }
+              },
+              "feature_config": {
+                "thinking_enabled": false,
+                "output_schema": "phase",
+                "instructions": null,
+                "research_mode": "normal",
+                "auto_thinking": false,
+                "thinking_mode": "Fast",
+                "auto_search": true
+              },
+              "parentId": "9d12ebe5-57d0-4e47-82c5-67910ee1be41",
+              "turn_id": null,
+              "childrenIds": [
+                "a7a46a41-f777-44fc-95cd-139729d950c9"
+              ],
+              "files": [],
+              "timestamp": 1777873796
+            }
+          },
+          "currentId": "a7a46a41-f777-44fc-95cd-139729d950c9",
+          "currentResponseIds": [
+            "a7a46a41-f777-44fc-95cd-139729d950c9"
+          ]
+        },
+        "models": [
+          "qwen3.6-plus"
+        ],
+        "messages": [
+          {
+            "id": "668326c7-420e-46a9-b4fb-bac37a77e50e",
+            "role": "user",
+            "content": "请输出thinking*第一次对话",
+            "models": [
+              "qwen3.6-plus"
+            ],
+            "chat_type": "t2t",
+            "sub_chat_type": "t2t",
+            "edited": false,
+            "error": null,
+            "extra": {
+              "meta": {
+                "subChatType": "t2t"
+              }
+            },
+            "feature_config": {
+              "thinking_enabled": true,
+              "output_schema": "phase",
+              "instructions": null,
+              "research_mode": "normal",
+              "auto_thinking": false,
+              "thinking_mode": "Thinking",
+              "thinking_format": "summary",
+              "auto_search": true
+            },
+            "parentId": null,
+            "turn_id": null,
+            "childrenIds": [
+              "9d12ebe5-57d0-4e47-82c5-67910ee1be41"
+            ],
+            "files": [],
+            "timestamp": 1777873780
+          },
+          {
+            "role": "assistant",
+            "content": "",
+            "reasoning_content": null,
+            "chat_type": "t2t",
+            "sub_chat_type": "t2t",
+            "model": "qwen3.6-plus",
+            "modelName": "Qwen3.6-Plus",
+            "modelIdx": 0,
+            "id": "9d12ebe5-57d0-4e47-82c5-67910ee1be41",
+            "parentId": "668326c7-420e-46a9-b4fb-bac37a77e50e",
+            "childrenIds": [
+              "bcdc52b9-42a5-4396-9282-1b00472fad4f"
+            ],
+            "feature_config": {
+              "thinking_enabled": true,
+              "output_schema": "phase",
+              "instructions": null,
+              "research_mode": "normal",
+              "auto_thinking": false,
+              "thinking_mode": "Thinking",
+              "thinking_format": "summary",
+              "auto_search": true
+            },
+            "content_list": [
+              {
+                "content": "",
+                "phase": "thinking_summary",
+                "status": "finished",
+                "extra": {
+                  "summary_title": {
+                    "content": [
+                      "启动思维流程",
+                      "输出指定内容",
+                      "输出指定字符串"
+                    ]
+                  },
+                  "summary_thought": {
+                    "content": [
+                      "我正在理解用户提出的请求，识别其核心意图。  \n通过解析语言表达，我确认用户希望输出特定的文本内容。  \n整个过程聚焦于准确响应，确保表达自然流畅。",
+                      "我正在理解用户请求的核心意图，确认其希望获得精确的文本响应。  \n我排除了潜在的格式干扰，聚焦于传达原始信息的本质。  \n最终以简洁准确的方式呈现所要求的内容。",
+                      "我正在精确执行用户指令，确保输出内容与要求完全一致。  \n不附加任何解释或额外信息，仅呈现原始文本。  \n整个过程保持简洁、直接，忠实于用户需求。"
+                    ]
+                  }
+                },
+                "role": "assistant",
+                "response_id": "9d12ebe5-57d0-4e47-82c5-67910ee1be41",
+                "usage": {
+                  "input_tokens": 28,
+                  "output_tokens": 349,
+                  "characters": 0,
+                  "total_tokens": 377,
+                  "input_tokens_details": {
+                    "text_tokens": 28
+                  },
+                  "output_tokens_details": {
+                    "reasoning_tokens": 340,
+                    "text_tokens": 349
+                  }
+                },
+                "timestamp": 1777873787
+              },
+              {
+                "content": "thinking*第一次对话",
+                "phase": "answer",
+                "status": "finished",
+                "extra": null,
+                "role": "assistant",
+                "response_id": "9d12ebe5-57d0-4e47-82c5-67910ee1be41",
+                "usage": {
+                  "input_tokens": 28,
+                  "output_tokens": 349,
+                  "characters": 0,
+                  "total_tokens": 377,
+                  "input_tokens_details": {
+                    "text_tokens": 28
+                  },
+                  "output_tokens_details": {
+                    "reasoning_tokens": 340,
+                    "text_tokens": 349
+                  }
+                },
+                "timestamp": 1777873787
+              }
+            ],
+            "is_stop": false,
+            "edited": false,
+            "error": null,
+            "meta": {},
+            "extra": {
+              "meta": {
+                "subChatType": "t2t"
+              },
+              "endTime": 1777873787.600104
+            },
+            "feedbackId": null,
+            "turn_id": null,
+            "annotation": null,
+            "done": true,
+            "info": null,
+            "timestamp": 1777873780
+          },
+          {
+            "id": "bcdc52b9-42a5-4396-9282-1b00472fad4f",
+            "role": "user",
+            "content": "请输出fast*第二次对话",
+            "models": [
+              "qwen3.6-plus"
+            ],
+            "chat_type": "t2t",
+            "sub_chat_type": "t2t",
+            "edited": false,
+            "error": null,
+            "extra": {
+              "meta": {
+                "subChatType": "t2t"
+              }
+            },
+            "feature_config": {
+              "thinking_enabled": false,
+              "output_schema": "phase",
+              "instructions": null,
+              "research_mode": "normal",
+              "auto_thinking": false,
+              "thinking_mode": "Fast",
+              "auto_search": true
+            },
+            "parentId": "9d12ebe5-57d0-4e47-82c5-67910ee1be41",
+            "turn_id": null,
+            "childrenIds": [
+              "a7a46a41-f777-44fc-95cd-139729d950c9"
+            ],
+            "files": [],
+            "timestamp": 1777873796
+          },
+          {
+            "role": "assistant",
+            "content": "",
+            "reasoning_content": null,
+            "chat_type": "t2t",
+            "sub_chat_type": "t2t",
+            "model": "qwen3.6-plus",
+            "modelName": "Qwen3.6-Plus",
+            "modelIdx": 0,
+            "id": "a7a46a41-f777-44fc-95cd-139729d950c9",
+            "parentId": "bcdc52b9-42a5-4396-9282-1b00472fad4f",
+            "childrenIds": [],
+            "feature_config": {
+              "thinking_enabled": false,
+              "output_schema": "phase",
+              "instructions": null,
+              "research_mode": "normal",
+              "auto_thinking": false,
+              "thinking_mode": "Fast",
+              "auto_search": true
+            },
+            "content_list": [
+              {
+                "content": "fast*第二次对话",
+                "phase": "answer",
+                "status": "finished",
+                "extra": null,
+                "role": "assistant",
+                "response_id": "a7a46a41-f777-44fc-95cd-139729d950c9",
+                "usage": {
+                  "input_tokens": 566,
+                  "output_tokens": 4,
+                  "characters": 0,
+                  "total_tokens": 570,
+                  "input_tokens_details": {
+                    "text_tokens": 566
+                  },
+                  "output_tokens_details": {
+                    "text_tokens": 4
+                  }
+                },
+                "timestamp": 1777873797
+              }
+            ],
+            "is_stop": false,
+            "edited": false,
+            "error": null,
+            "meta": {},
+            "extra": {
+              "meta": {
+                "subChatType": "t2t"
+              },
+              "endTime": 1777873797.697932
+            },
+            "feedbackId": null,
+            "turn_id": null,
+            "annotation": null,
+            "done": true,
+            "info": null,
+            "timestamp": 1777873796
+          }
+        ]
+      },
+      "updated_at": 1777873795,
+      "created_at": 1777873778,
+      "share_id": null,
+      "archived": false,
+      "pinned": false,
+      "meta": {
+        "timestamp": 1777873779921,
+        "tags": []
+      },
+      "folder_id": null,
+      "currentResponseIds": [
+        "a7a46a41-f777-44fc-95cd-139729d950c9"
+      ],
+      "currentId": "a7a46a41-f777-44fc-95cd-139729d950c9",
+      "chat_type": "t2t",
+      "models": null,
+      "project_id": ""
+    }
+  ]
+}

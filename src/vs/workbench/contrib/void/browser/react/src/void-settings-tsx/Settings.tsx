@@ -1058,6 +1058,11 @@ export const Settings = () => {
 	const metricsService = accessor.get('IMetricsService')
 	const isOptedOut = useIsOptedOut()
 
+	const promptStyleOptions = useMemo(() => ['cursor', 'legacy'] as const, [])
+	const onChangePromptStyle = useCallback((newVal: 'cursor' | 'legacy') => {
+		voidSettingsService.setGlobalSetting('promptStyle', newVal)
+	}, [voidSettingsService])
+
 	const onDownload = (t: 'Chats' | 'Settings') => {
 		let dataStr: string
 		let downloadName: string
@@ -1521,6 +1526,43 @@ Alternatively, place a \`.voidrules\` file in the root of your workspace.
 										<div className='text-void-fg-3 text-xs mt-1'>
 											{`When disabled, Void will not include anything in the system message except for content you specified above.`}
 										</div>
+									</div>
+								</div>
+
+								<div className='max-w-[600px]'>
+									<h2 className={`text-3xl mb-2`}>Prompts</h2>
+									<h4 className={`text-void-fg-3 mb-4`}>{`Controls how Void formats prompts and context for models.`}</h4>
+
+									<div className='flex flex-col gap-4'>
+										<ErrorBoundary>
+											<div>
+												<div className='text-void-fg-3 text-xs mb-2'>Prompt style</div>
+												<VoidCustomDropdownBox
+													className='text-xs text-void-fg-3 bg-void-bg-1 border border-void-border-1 rounded p-0.5 px-1'
+													options={promptStyleOptions as unknown as ('cursor' | 'legacy')[]}
+													selectedOption={settingsState.globalSettings.promptStyle}
+													onChangeOption={onChangePromptStyle}
+													getOptionDisplayName={(val) => val === 'cursor' ? 'Cursor' : 'Legacy'}
+													getOptionDropdownName={(val) => val === 'cursor' ? 'Cursor' : 'Legacy'}
+													getOptionDropdownDetail={(val) => val === 'cursor' ? 'Structured prompt format with enhanced context' : 'Older prompt format'}
+													getOptionsEqual={(a, b) => a === b}
+												/>
+											</div>
+										</ErrorBoundary>
+
+										<ErrorBoundary>
+											<div>
+												<div className='flex items-center gap-x-2'>
+													<VoidSwitch
+														size='xs'
+														value={!!settingsState.globalSettings.enableEnhancedContext}
+														onChange={(newVal) => voidSettingsService.setGlobalSetting('enableEnhancedContext', newVal)}
+													/>
+													<span className='text-void-fg-3 text-xs pointer-events-none'>Enhanced context</span>
+												</div>
+												<div className='text-void-fg-3 text-xs mt-1'>{`When enabled, Void includes additional context (files, selections, and metadata) in requests.`}</div>
+											</div>
+										</ErrorBoundary>
 									</div>
 								</div>
 

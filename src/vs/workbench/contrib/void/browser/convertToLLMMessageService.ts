@@ -7,7 +7,7 @@ import { IWorkspaceContextService } from '../../../../platform/workspace/common/
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { ChatMessage } from '../common/chatThreadServiceTypes.js';
 import { getIsReasoningEnabledState, getReservedOutputTokenSpace, getModelCapabilities } from '../common/modelCapabilities.js';
-import { reParsedToolXMLString, chat_systemMessage } from '../common/prompt/prompts.js';
+import { reParsedToolXMLString, chat_systemMessage, tripleTick } from '../common/prompt/prompts.js';
 import { AnthropicLLMChatMessage, AnthropicReasoning, GeminiLLMChatMessage, LLMChatMessage, LLMFIMMessage, OpenAILLMChatMessage, RawToolParamsObj } from '../common/sendLLMMessageTypes.js';
 import { IVoidSettingsService } from '../common/voidSettingsService.js';
 import { ChatMode, FeatureName, ModelSelection, ProviderName } from '../common/voidSettingsTypes.js';
@@ -18,6 +18,9 @@ import { URI } from '../../../../base/common/uri.js';
 import { EndOfLinePreference } from '../../../../editor/common/model.js';
 import { ToolName } from '../common/toolsServiceTypes.js';
 import { IMCPService } from '../common/mcpService.js';
+import { IMarkerService, MarkerSeverity } from '../../../../platform/markers/common/markers.js';
+import { ISCMService } from '../../scm/common/scm.js';
+import { ITerminalSnippetService } from './terminalSnippetService.js';
 
 export const EMPTY_MESSAGE = '(empty message)'
 
@@ -541,6 +544,9 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		@IVoidSettingsService private readonly voidSettingsService: IVoidSettingsService,
 		@IVoidModelService private readonly voidModelService: IVoidModelService,
 		@IMCPService private readonly mcpService: IMCPService,
+		@IMarkerService private readonly markerService: IMarkerService,
+		@ISCMService private readonly scmService: ISCMService,
+		@ITerminalSnippetService private readonly terminalSnippetService: ITerminalSnippetService,
 	) {
 		super()
 	}
@@ -574,6 +580,75 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		return ans.join('\n\n')
 	}
 
+	private _getDiagnosticsSummary(): string | null {
+		const markers = this.markerService.read({ severities: MarkerSeverity.Error | MarkerSeverity.Warning, take: 2000 })
+		if (!markers.length) return null
+
+		let errors = 0
+		let warnings = 0
+		const byFile = new Map<string, { errors: number, warnings: number }>()
+
+		for (const m of markers) {
+			const fsPath = m.resource?.fsPath
+			if (!fsPath) continue
+			const entry = byFile.get(fsPath) ?? { errors: 0, warnings: 0 }
+			if (m.severity === MarkerSeverity.Error) {
+				errors += 1
+				entry.errors += 1
+			} else if (m.severity === MarkerSeverity.Warning) {
+				warnings += 1
+				entry.warnings += 1
+			}
+			byFile.set(fsPath, entry)
+		}
+
+		const topFiles = [...byFile.entries()]
+			.sort((a, b) => (b[1].errors + b[1].warnings) - (a[1].errors + a[1].warnings))
+			.slice(0, 5)
+			.map(([path, c]) => `- ${path}: ${c.errors}E ${c.warnings}W`)
+			.join('\n')
+
+		return `Diagnostics:\n- Errors: ${errors}\n- Warnings: ${warnings}${topFiles ? `\n${topFiles}` : ''}`
+	}
+
+	private _getGitSummary(): string | null {
+		const repos = Array.from(this.scmService.repositories || [])
+		const repo = repos.find((r) => r.provider.contextValue === 'git')
+		if (!repo) return null
+
+		const root = repo.provider.rootUri?.fsPath
+		let changes = 0
+		for (const g of repo.provider.groups) {
+			changes += g.resources.length
+		}
+
+		const rootLine = root ? `- Root: ${root}` : ''
+		return `Git:\n${rootLine ? `${rootLine}\n` : ''}- Changes: ${changes}`
+	}
+
+	private _getTerminalFailureSummary(): string | null {
+		const snippet = this.terminalSnippetService.getActiveFailedSnippet()
+		if (!snippet) return null
+		const content = snippet.content?.trim()
+		if (!content) return null
+
+		const max = 6000
+		const trimmed = content.length > max ? `${content.slice(0, max)}\n...` : content
+		return `Last terminal failure (active terminal):\n${tripleTick[0]}\n${trimmed}\n${tripleTick[1]}`
+	}
+
+	private _getEnhancedContext(): string | undefined {
+		if (!this.voidSettingsService.state.globalSettings.enableEnhancedContext) return undefined
+		const parts: string[] = []
+		const diagnostics = this._getDiagnosticsSummary()
+		const git = this._getGitSummary()
+		const terminal = this._getTerminalFailureSummary()
+		if (diagnostics) parts.push(diagnostics)
+		if (git) parts.push(git)
+		if (terminal) parts.push(terminal)
+		return parts.length ? parts.join('\n\n') : undefined
+	}
+
 
 	// system message
 	private _generateChatMessagesSystemMessage = async (chatMode: ChatMode, specialToolFormat: 'openai-style' | 'anthropic-style' | 'gemini-style' | undefined) => {
@@ -593,7 +668,9 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		const mcpTools = this.mcpService.getMCPTools()
 
 		const persistentTerminalIDs = this.terminalToolService.listPersistentTerminalIds()
-		const systemMessage = chat_systemMessage({ workspaceFolders, openedURIs, directoryStr, activeURI, persistentTerminalIDs, chatMode, mcpTools, includeXMLToolDefinitions })
+		const { promptStyle } = this.voidSettingsService.state.globalSettings
+		const enhancedContext = this._getEnhancedContext()
+		const systemMessage = chat_systemMessage({ workspaceFolders, openedURIs, directoryStr, activeURI, persistentTerminalIDs, chatMode, mcpTools, includeXMLToolDefinitions, promptStyle, enhancedContext })
 		return systemMessage
 	}
 
@@ -721,7 +798,9 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		let prefix = `\
 ${!combinedInstructions ? '' : `\
 // Instructions:
-// Do not output an explanation. Try to avoid outputting comments. Only output the middle code.
+// Do not output any explanation or markdown.
+// Output only code that belongs in the middle region.
+// Avoid adding new comments unless strictly necessary.
 ${combinedInstructions.split('\n').map(line => `//${line}`).join('\n')}`}
 
 ${messages.prefix}`
@@ -769,4 +848,3 @@ gemini response:
 	}
 }
 */
-

@@ -425,14 +425,26 @@ const systemToolsXMLPrompt = (chatMode: ChatMode, mcpTools: InternalToolInfo[] |
 // ======================================================== chat (normal, gather, agent) ========================================================
 
 
-export const chat_systemMessage = ({ workspaceFolders, openedURIs, activeURI, persistentTerminalIDs, directoryStr, chatMode: mode, mcpTools, includeXMLToolDefinitions }: { workspaceFolders: string[], directoryStr: string, openedURIs: string[], activeURI: string | undefined, persistentTerminalIDs: string[], chatMode: ChatMode, mcpTools: InternalToolInfo[] | undefined, includeXMLToolDefinitions: boolean }) => {
-	const header = (`You are an expert coding ${mode === 'agent' ? 'agent' : 'assistant'} whose job is \
+export const chat_systemMessage = ({ workspaceFolders, openedURIs, activeURI, persistentTerminalIDs, directoryStr, chatMode: mode, mcpTools, includeXMLToolDefinitions, promptStyle, enhancedContext }: { workspaceFolders: string[], directoryStr: string, openedURIs: string[], activeURI: string | undefined, persistentTerminalIDs: string[], chatMode: ChatMode, mcpTools: InternalToolInfo[] | undefined, includeXMLToolDefinitions: boolean, promptStyle: 'legacy' | 'cursor', enhancedContext?: string }) => {
+	const isCursor = promptStyle === 'cursor'
+
+	const header = (isCursor ? `You are an AI coding assistant. You operate in Void.` : `You are an expert coding ${mode === 'agent' ? 'agent' : 'assistant'} whose job is \
 ${mode === 'agent' ? `to help the user develop, run, and make changes to their codebase.`
 			: mode === 'gather' ? `to search, understand, and reference files in the user's codebase.`
 				: mode === 'normal' ? `to assist the user with their coding tasks.`
 					: ''}
 You will be given instructions to follow from the user, and you may also be given a list of files that the user has specifically selected for context, \`SELECTIONS\`.
 Please assist the user with their query.`)
+
+	const communication = !isCursor ? null : (`<communication>
+- Use markdown only where it improves readability.
+- Use backticks for file paths, symbols, and commands.
+- Prefer concise, actionable answers over explanations.
+</communication>`)
+
+	const statusUpdate = !isCursor ? null : (`<status_update_spec>
+Write brief progress updates (1–3 sentences) when it helps: what you did, what you are doing next, and any blockers.
+</status_update_spec>`)
 
 
 
@@ -451,6 +463,10 @@ ${openedURIs.join('\n') || 'NO OPENED FILES'}${''/* separator */}${mode === 'age
 
 - Persistent terminal IDs available for you to run commands in: ${persistentTerminalIDs.join(', ')}` : ''}
 </system_info>`)
+
+	const enhanced = enhancedContext ? (`<enhanced_context>
+${enhancedContext}
+</enhanced_context>`) : null
 
 
 	const fsInfo = (`Here is an overview of the user's file system:
@@ -515,9 +531,25 @@ ${details.map((d, i) => `${i + 1}. ${d}`).join('\n\n')}`)
 	// return answer
 	const ansStrs: string[] = []
 	ansStrs.push(header)
+	if (communication) ansStrs.push(communication)
+	if (statusUpdate) ansStrs.push(statusUpdate)
 	ansStrs.push(sysInfo)
-	if (toolDefinitions) ansStrs.push(toolDefinitions)
-	ansStrs.push(importantDetails)
+	if (enhanced) ansStrs.push(enhanced)
+	if (isCursor) {
+		const cursorToolCallingParts: string[] = []
+		cursorToolCallingParts.push(`- Prefer gathering context before changing code.`)
+		cursorToolCallingParts.push(`- Use tools to read/search/edit/run when appropriate; do not guess.`)
+		cursorToolCallingParts.push(`- After making edits, validate with available checks/tests when possible.`)
+		cursorToolCallingParts.push(`- Do not claim you ran checks you did not run.`)
+		let toolCalling = `<tool_calling>\n${cursorToolCallingParts.map(l => `- ${l.replace(/^- /, '')}`).join('\n')}\n</tool_calling>`
+		if (toolDefinitions) {
+			toolCalling = `${toolCalling}\n\n${toolDefinitions}`
+		}
+		ansStrs.push(toolCalling)
+	} else {
+		if (toolDefinitions) ansStrs.push(toolDefinitions)
+		ansStrs.push(importantDetails)
+	}
 	ansStrs.push(fsInfo)
 
 	const fullSystemMsgStr = ansStrs
@@ -769,9 +801,10 @@ The user will also give you the existing original SELECTION that will be be repl
 
 Instructions:
 1. Your OUTPUT should be a SINGLE PIECE OF CODE of the form <${midTag}>...new_code</${midTag}>. Do NOT output any text or explanations before or after this.
-2. You may ONLY CHANGE the original SELECTION, and NOT the content in the <${preTag}>...</${preTag}> or <${sufTag}>...</${sufTag}> tags.
-3. Make sure all brackets in the new selection are balanced the same as in the original selection.
-4. Be careful not to duplicate or remove variables, comments, or other syntax by mistake.
+2. Do not add markdown code fences or surrounding commentary.
+3. You may ONLY CHANGE the original SELECTION, and NOT the content in the <${preTag}>...</${preTag}> or <${sufTag}>...</${sufTag}> tags.
+4. Make sure all brackets in the new selection are balanced the same as in the original selection.
+5. Be careful not to duplicate or remove variables, comments, or other syntax by mistake.
 `
 }
 

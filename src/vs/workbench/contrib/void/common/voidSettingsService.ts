@@ -282,6 +282,9 @@ class VoidSettingsService extends Disposable implements IVoidSettingsService {
 			// autoapprove is now an obj not a boolean (1.2.5)
 			if (typeof readS.globalSettings.autoApprove === 'boolean') readS.globalSettings.autoApprove = {}
 
+			if (readS.globalSettings.promptStyle === undefined) readS.globalSettings.promptStyle = 'cursor'
+			if (readS.globalSettings.enableEnhancedContext === undefined) readS.globalSettings.enableEnhancedContext = true
+
 			// 1.3.5 add source control feature
 			if (readS.modelSelectionOfFeature && !readS.modelSelectionOfFeature['SCM']) {
 				readS.modelSelectionOfFeature['SCM'] = deepClone(readS.modelSelectionOfFeature['Chat'])

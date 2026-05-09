@@ -77,6 +77,7 @@ suite('Void Enhanced Context', () => {
 			}
 		);
 
+		assert.ok(ctx);
 		assert.ok(ctx.includes('<RecentFiles>'));
 		const recentIdx = ctx.indexOf('/repo/src/b.ts');
 		const olderIdx = ctx.indexOf('/repo/src/a.ts');

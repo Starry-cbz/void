@@ -459,6 +459,12 @@ export type GlobalSettings = {
 	enhancedContextIncludeRecentFiles: boolean;
 	disableSystemMessage: boolean;
 	autoAcceptLLMChanges: boolean;
+	// Skills settings
+	enableSkills: boolean;
+	enableGlobalSkills: boolean;
+	enableLocalSkills: boolean;
+	maxSkills: number;
+	globalSkillsPath?: string;
 }
 
 export const defaultGlobalSettings: GlobalSettings = {
@@ -482,6 +488,12 @@ export const defaultGlobalSettings: GlobalSettings = {
 	enhancedContextIncludeRecentFiles: true,
 	disableSystemMessage: false,
 	autoAcceptLLMChanges: false,
+	// Skills settings
+	enableSkills: true,
+	enableGlobalSkills: true,
+	enableLocalSkills: true,
+	maxSkills: 100,
+	globalSkillsPath: undefined,
 }
 
 export type GlobalSettingName = keyof GlobalSettings

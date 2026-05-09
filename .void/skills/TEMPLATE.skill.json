@@ -1,0 +1,15 @@
+{
+	"id": "your-skill-id",
+	"name": "Your Skill Name",
+	"description": "Describe what this skill does and when the AI should use it",
+	"version": "1.0.0",
+	"author": "Your Name",
+	"tags": ["tag1", "tag2", "tag3"],
+	"instructions": "Provide detailed instructions for the AI:\n1. First guideline\n2. Second guideline\n3. Third guideline\n4. And so on...",
+	"examples": [
+		"Example 1: Show a specific code pattern or practice",
+		"Example 2: Another example of how to apply this skill",
+		"Example 3: Edge case or advanced usage"
+	],
+	"enabled": true
+}

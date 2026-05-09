@@ -606,6 +606,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		@ISCMService private readonly scmService: ISCMService,
 		@ITerminalSnippetService private readonly terminalSnippetService: ITerminalSnippetService,
 		@IMainProcessService mainProcessService: IMainProcessService,
+		@ISkillsService private readonly skillsService: ISkillsService,
 	) {
 		super()
 		this.voidSCM = ProxyChannel.toService<IVoidSCMService>(mainProcessService.getChannel('void-channel-scm'))
@@ -917,9 +918,13 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		const mcpTools = this.mcpService.getMCPTools()
 
 		const persistentTerminalIDs = this.terminalToolService.listPersistentTerminalIds()
-		const { promptStyle } = this.voidSettingsService.state.globalSettings
+		const { promptStyle, enableSkills } = this.voidSettingsService.state.globalSettings
 		const enhancedContext = await this._getEnhancedContext(workspaceFolders)
-		return chat_systemMessage({ workspaceFolders, openedURIs, directoryStr, activeURI, persistentTerminalIDs, chatMode, mcpTools, includeXMLToolDefinitions, promptStyle, enhancedContext })
+		
+		// Get enabled skills if skills are enabled
+		const skills = enableSkills ? this.skillsService.getEnabledSkills() : undefined
+		
+		return chat_systemMessage({ workspaceFolders, openedURIs, directoryStr, activeURI, persistentTerminalIDs, chatMode, mcpTools, includeXMLToolDefinitions, promptStyle, enhancedContext, skills })
 	}
 
 

@@ -24,3 +24,7 @@ export const VOID_REJECT_FILE_ACTION_ID = 'void.rejectFile'
 export const VOID_ACCEPT_ALL_DIFFS_ACTION_ID = 'void.acceptAllDiffs'
 
 export const VOID_REJECT_ALL_DIFFS_ACTION_ID = 'void.rejectAllDiffs'
+
+// Skills actions
+export const VOID_RELOAD_SKILLS_ACTION_ID = 'void.reloadSkills'
+export const VOID_LIST_SKILLS_ACTION_ID = 'void.listSkills'

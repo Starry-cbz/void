@@ -1,0 +1,17 @@
+{
+	"id": "react-best-practices",
+	"name": "React Best Practices",
+	"description": "Guidelines for writing modern, performant React components with hooks and TypeScript",
+	"version": "1.0.0",
+	"author": "Void Team",
+	"tags": ["react", "typescript", "hooks", "performance"],
+	"instructions": "When writing React code:\n1. Use functional components with hooks instead of class components\n2. Always type props and state with TypeScript interfaces\n3. Use custom hooks to extract reusable logic\n4. Implement proper dependency arrays in useEffect, useMemo, useCallback\n5. Use React.memo() for expensive component renders\n6. Prefer controlled components for forms\n7. Use error boundaries for error handling\n8. Implement proper loading and error states\n9. Use context API or state management libraries appropriately\n10. Follow the rules of hooks (only call at top level, only in React functions)",
+	"examples": [
+		"use interface Props { userId: string; onEdit?: () => void } for component props",
+		"const [state, setState] = useState<Type>(initialValue) with explicit types",
+		"useEffect(() => { fetchData(); }, [dependency]) with proper dependencies",
+		"const memoizedValue = useMemo(() => computeExpensive(a, b), [a, b])",
+		"const Component = React.memo(({ prop }: Props) => { ... }) for performance"
+	],
+	"enabled": true
+}

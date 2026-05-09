@@ -1,0 +1,17 @@
+{
+	"id": "git-best-practices",
+	"name": "Git Workflow Best Practices",
+	"description": "Guidelines for effective Git usage, commit messages, and branching strategies",
+	"version": "1.0.0",
+	"author": "Void Team",
+	"tags": ["git", "version-control", "workflow"],
+	"instructions": "When working with Git:\n1. Write clear, concise commit messages following conventional commits format\n2. Use feature branches for new work (feature/description)\n3. Keep commits atomic - one logical change per commit\n4. Rebase instead of merge when updating feature branches\n5. Use .gitignore to exclude unnecessary files\n6. Review changes before committing (git diff)\n7. Use meaningful branch names that describe the purpose\n8. Squash commits before merging to main/master\n9. Always pull latest changes before pushing\n10. Use git stash for temporary work-in-progress",
+	"examples": [
+		"feat: add user authentication system",
+		"fix: resolve null pointer exception in UserService",
+		"docs: update API documentation for v2 endpoints",
+		"refactor: simplify database query logic",
+		"test: add unit tests for payment processing"
+	],
+	"enabled": true
+}

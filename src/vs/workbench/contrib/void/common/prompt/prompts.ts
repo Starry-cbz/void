@@ -11,6 +11,7 @@ import { os } from '../helpers/systemInfo.js';
 import { RawToolParamsObj } from '../sendLLMMessageTypes.js';
 import { approvalTypeOfBuiltinToolName, BuiltinToolCallParams, BuiltinToolName, BuiltinToolResultType, ToolName } from '../toolsServiceTypes.js';
 import { ChatMode } from '../voidSettingsTypes.js';
+import { SkillDefinition } from '../skillsServiceTypes.js';
 
 // Triple backtick wrapper used throughout the prompts for code blocks
 export const tripleTick = ['```', '```']
@@ -425,7 +426,7 @@ const systemToolsXMLPrompt = (chatMode: ChatMode, mcpTools: InternalToolInfo[] |
 // ======================================================== chat (normal, gather, agent) ========================================================
 
 
-export const chat_systemMessage = ({ workspaceFolders, openedURIs, activeURI, persistentTerminalIDs, directoryStr, chatMode: mode, mcpTools, includeXMLToolDefinitions, promptStyle, enhancedContext }: { workspaceFolders: string[], directoryStr: string, openedURIs: string[], activeURI: string | undefined, persistentTerminalIDs: string[], chatMode: ChatMode, mcpTools: InternalToolInfo[] | undefined, includeXMLToolDefinitions: boolean, promptStyle: 'legacy' | 'cursor', enhancedContext?: string }) => {
+export const chat_systemMessage = ({ workspaceFolders, openedURIs, activeURI, persistentTerminalIDs, directoryStr, chatMode: mode, mcpTools, includeXMLToolDefinitions, promptStyle, enhancedContext, skills }: { workspaceFolders: string[], directoryStr: string, openedURIs: string[], activeURI: string | undefined, persistentTerminalIDs: string[], chatMode: ChatMode, mcpTools: InternalToolInfo[] | undefined, includeXMLToolDefinitions: boolean, promptStyle: 'legacy' | 'cursor', enhancedContext?: string, skills?: SkillDefinition[] }) => {
 	const isCursor = promptStyle === 'cursor'
 
 	const header = (isCursor ? `You are an AI coding assistant. You operate in Void.` : `You are an expert coding ${mode === 'agent' ? 'agent' : 'assistant'} whose job is \
@@ -476,6 +477,9 @@ ${directoryStr}
 
 
 	const toolDefinitions = includeXMLToolDefinitions ? systemToolsXMLPrompt(mode, mcpTools) : null
+
+	// Build skills section if skills are available
+	const skillsSection = skills && skills.length > 0 ? buildSkillsPrompt(skills) : null
 
 	const details: string[] = []
 
@@ -552,6 +556,11 @@ ${details.map((d, i) => `${i + 1}. ${d}`).join('\n\n')}`)
 	}
 	ansStrs.push(fsInfo)
 
+	// Add skills section before file system overview
+	if (skillsSection) {
+		ansStrs.splice(ansStrs.length - 1, 0, skillsSection) // Insert before fsInfo
+	}
+
 	const fullSystemMsgStr = ansStrs
 		.join('\n\n\n')
 		.trim()
@@ -559,6 +568,49 @@ ${details.map((d, i) => `${i + 1}. ${d}`).join('\n\n')}`)
 
 	return fullSystemMsgStr
 
+}
+
+/**
+ * Builds a prompt section for available skills
+ */
+export const buildSkillsPrompt = (skills: SkillDefinition[]): string => {
+	const skillsList = skills.map((skill, index) => {
+		const parts: string[] = []
+		parts.push(`${index + 1}. **${skill.name}** (${skill.id})`)
+		parts.push(`   Description: ${skill.description}`)
+		parts.push(`   Instructions: ${skill.instructions}`)
+		
+		if (skill.examples && skill.examples.length > 0) {
+			parts.push(`   Examples:`)
+			skill.examples.forEach(example => {
+				parts.push(`     - ${example}`)
+			})
+		}
+		
+		if (skill.tags && skill.tags.length > 0) {
+			parts.push(`   Tags: ${skill.tags.join(', ')}`)
+		}
+		
+		if (skill.source === 'global') {
+			parts.push(`   Source: Global skill`)
+		} else {
+			parts.push(`   Source: Workspace skill`)
+		}
+		
+		return parts.join('\n')
+	}).join('\n\n')
+
+	return `<available_skills>
+You have access to the following skills that provide specialized capabilities and domain knowledge:
+
+${skillsList}
+
+## How to use skills:
+- When a task matches a skill's description, follow the skill's instructions
+- Skills provide best practices, patterns, and guidelines for specific tasks
+- You can combine multiple skills when appropriate
+- Always prioritize skill instructions over general guidelines when applicable
+</available_skills>`
 }
 
 

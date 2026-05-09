@@ -1,0 +1,15 @@
+{
+	"id": "typescript-best-practices",
+	"name": "TypeScript Best Practices",
+	"description": "Provides guidelines and best practices for writing clean, type-safe TypeScript code",
+	"version": "1.0.0",
+	"author": "Void Team",
+	"tags": ["typescript", "best-practices", "type-safety"],
+	"instructions": "When writing TypeScript code:\n1. Always use explicit types instead of 'any'\n2. Prefer interfaces over types for object shapes\n3. Use strict null checks\n4. Leverage generics for reusable code\n5. Use const assertions for literal types\n6. Avoid type assertions unless absolutely necessary\n7. Use utility types (Partial, Pick, Omit, etc.) when appropriate\n8. Enable strict mode in tsconfig.json",
+	"examples": [
+		"Use interface User { id: number; name: string } instead of type User = any",
+		"Use function identity<T>(arg: T): T instead of function identity(arg: any): any",
+		"Use const config = { timeout: 5000 } as const for immutable configurations"
+	],
+	"enabled": true
+}

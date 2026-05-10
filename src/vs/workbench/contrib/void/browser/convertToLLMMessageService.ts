@@ -30,6 +30,7 @@ import { ITerminalService } from '../../terminal/browser/terminal.js';
 import { TerminalCapability } from '../../../../platform/terminal/common/capabilities/capabilities.js';
 import { buildEnhancedContext, DEFAULT_DIFF_CACHE_TTL_MS, DEFAULT_MAX_RECENT_FILES, DiffSummary, DiffSummaryCache, RecentFileEntry, RecentFilesTracker } from '../common/enhancedContext.js';
 import { IVoidSCMService } from '../common/voidSCMTypes.js';
+import { ISkillsService } from './skillsService.js';
 
 export const EMPTY_MESSAGE = '(empty message)'
 

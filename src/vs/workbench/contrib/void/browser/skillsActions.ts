@@ -9,14 +9,15 @@ import { ISkillsService } from './skillsService.js';
 import { VOID_RELOAD_SKILLS_ACTION_ID, VOID_LIST_SKILLS_ACTION_ID } from './actionIDs.js';
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
 import { IQuickInputService, IQuickPickItem } from '../../../../platform/quickinput/common/quickInput.js';
+import { localize } from '../../../../nls.js';
 
 // Reload skills action
 registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: VOID_RELOAD_SKILLS_ACTION_ID,
-			title: 'Void: Reload Skills',
-			category: 'Void',
+			title: { value: localize('void.reloadSkills', "Void: Reload Skills"), original: 'Void: Reload Skills' },
+			category: { value: localize('void.category', "Void"), original: 'Void' },
 			f1: true,
 		});
 	}
@@ -41,8 +42,8 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: VOID_LIST_SKILLS_ACTION_ID,
-			title: 'Void: Manage Skills',
-			category: 'Void',
+			title: { value: localize('void.manageSkills', "Void: Manage Skills"), original: 'Void: Manage Skills' },
+			category: { value: localize('void.category', "Void"), original: 'Void' },
 			f1: true,
 		});
 	}

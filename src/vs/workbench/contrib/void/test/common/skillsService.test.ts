@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------*/
 
 import { strict as assert } from 'assert';
-import { URI } from '../../../../base/common/uri.js';
+import { URI } from '../../../../../base/common/uri.js';
 import { SkillDefinition } from '../../common/skillsServiceTypes.js';
 
 suite('SkillsService', () => {

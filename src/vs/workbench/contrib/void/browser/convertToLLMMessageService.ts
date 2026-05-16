@@ -607,7 +607,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		@ISCMService private readonly scmService: ISCMService,
 		@ITerminalSnippetService private readonly terminalSnippetService: ITerminalSnippetService,
 		@IMainProcessService mainProcessService: IMainProcessService,
-		@ISkillsService private readonly skillsService: ISkillsService,
+		@ISkillsService private readonly skillsService: ISkillsServiceType,
 	) {
 		super()
 		this.voidSCM = ProxyChannel.toService<IVoidSCMService>(mainProcessService.getChannel('void-channel-scm'))

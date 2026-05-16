@@ -1,6 +1,5 @@
-import { useState, useEffect, useRef, useCallback, useMemo, type ReactElement } from 'react'
+import { useState, useEffect, useCallback, useMemo, type ReactElement } from 'react'
 import { useTranslation } from 'react-i18next'
-import { List, type RowComponentProps } from 'react-window'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -12,9 +11,18 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import {
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from '@/components/ui/pagination'
 import { RequestLogDetail } from './RequestLogDetail'
 import { RequestLogStats } from './RequestLogStats'
-import { Search, RefreshCw, Trash2, Download } from 'lucide-react'
+import { RefreshCw, Trash2, Download } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { cn } from '@/lib/utils'
 
@@ -50,12 +58,14 @@ interface RequestLogStatsData {
   todayError: number
 }
 
-interface RowProps {
+interface PaginatedResponse {
   logs: RequestLogEntry[]
-  onSelectLog: (log: RequestLogEntry) => void
+  total: number
+  page: number
+  pageSize: number
 }
 
-const ITEM_HEIGHT = 72
+const PAGE_SIZE = 50
 
 function getStatusColor(status: 'success' | 'error', statusCode: number) {
   if (status === 'success') return 'bg-green-500/10 text-green-500 border-green-500/20'
@@ -88,24 +98,35 @@ export function RequestLogList() {
   const [isLoading, setIsLoading] = useState(true)
   const [showClearDialog, setShowClearDialog] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
-  const logsRef = useRef<RequestLogEntry[]>([])
-  const containerRef = useRef<HTMLDivElement>(null)
-  const [containerSize, setContainerSize] = useState({ width: 800, height: 400 })
+  const [currentPage, setCurrentPage] = useState(1)
+  const [totalLogs, setTotalLogs] = useState(0)
 
-  const fetchLogs = useCallback(async () => {
+  const totalPages = Math.ceil(totalLogs / PAGE_SIZE)
+
+  const fetchLogs = useCallback(async (page: number = currentPage) => {
     try {
       const filter = statusFilter === 'all' ? {} : { status: statusFilter }
-      const result = await window.electronAPI?.requestLogs?.get({ ...filter, limit: 200 })
+      const result = await window.electronAPI?.requestLogs?.get({ 
+        ...filter, 
+        page, 
+        pageSize: PAGE_SIZE 
+      })
       if (result) {
-        if (JSON.stringify(result) !== JSON.stringify(logsRef.current)) {
-          logsRef.current = result
-          setLogs(result)
+        // Check if it's a paginated response
+        if (result && typeof result === 'object' && 'logs' in result) {
+          const paginatedResult = result as PaginatedResponse
+          setLogs(paginatedResult.logs)
+          setTotalLogs(paginatedResult.total)
+        } else {
+          // Legacy response (array)
+          setLogs(result as RequestLogEntry[])
+          setTotalLogs((result as RequestLogEntry[]).length)
         }
       }
     } catch (error) {
       console.error('Failed to fetch request logs:', error)
     }
-  }, [statusFilter])
+  }, [currentPage, statusFilter])
 
   const fetchStats = useCallback(async () => {
     try {
@@ -120,46 +141,43 @@ export function RequestLogList() {
 
   useEffect(() => {
     setIsLoading(true)
-    Promise.all([fetchLogs(), fetchStats()]).finally(() => setIsLoading(false))
-  }, [fetchLogs, fetchStats])
+    Promise.all([fetchLogs(1), fetchStats()]).finally(() => {
+      setIsLoading(false)
+      setCurrentPage(1)
+    })
+  }, [statusFilter, fetchStats])
 
   useEffect(() => {
-    const interval = setInterval(fetchLogs, 3000)
-    return () => clearInterval(interval)
-  }, [fetchLogs])
+    if (currentPage !== 1 || statusFilter !== 'all') {
+      setIsLoading(true)
+      fetchLogs(currentPage).finally(() => setIsLoading(false))
+    }
+  }, [currentPage])
 
+  // Real-time update: only update if we're on page 1
   useEffect(() => {
     if (!window.electronAPI?.requestLogs?.onNewLog) return
 
     const unsubscribe = window.electronAPI.requestLogs.onNewLog((newLog: RequestLogEntry) => {
-      if (statusFilter === 'all' || newLog.status === statusFilter) {
-        logsRef.current = [newLog, ...logsRef.current.slice(0, 199)]
-        setLogs([...logsRef.current])
+      // Only update in real-time if we're on page 1 and filter matches
+      if (currentPage === 1 && (statusFilter === 'all' || newLog.status === statusFilter)) {
+        setLogs(prev => {
+          const updated = [newLog, ...prev.slice(0, PAGE_SIZE - 1)]
+          return updated
+        })
+        setTotalLogs(prev => prev + 1)
       }
       fetchStats()
     })
 
     return unsubscribe
-  }, [statusFilter, fetchStats])
-
-  useEffect(() => {
-    const updateSize = () => {
-      if (containerRef.current) {
-        setContainerSize({
-          width: containerRef.current.clientWidth,
-          height: Math.max(100, Math.min(600, logs.length * ITEM_HEIGHT)),
-        })
-      }
-    }
-    updateSize()
-    window.addEventListener('resize', updateSize)
-    return () => window.removeEventListener('resize', updateSize)
-  }, [logs.length])
+  }, [currentPage, statusFilter, fetchStats])
 
   const handleClearLogs = async () => {
     await window.electronAPI?.requestLogs?.clear()
-    logsRef.current = []
     setLogs([])
+    setTotalLogs(0)
+    setCurrentPage(1)
     fetchStats()
     setShowClearDialog(false)
   }
@@ -208,62 +226,59 @@ export function RequestLogList() {
     setSelectedLog(log)
   }, [])
 
-  const RowComponent = useCallback(
-    ({ index, style, logs: rowLogs, onSelectLog }: RowComponentProps<RowProps>): ReactElement | null => {
-      const log = rowLogs[index]
-      if (!log) return null
+  const handlePageChange = useCallback((page: number) => {
+    if (page >= 1 && page <= totalPages) {
+      setCurrentPage(page)
+    }
+  }, [totalPages])
 
-      return (
-        <div
-          style={style}
-          className="px-2 pb-2"
-          onClick={() => onSelectLog(log)}
-        >
-          <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/30 hover:bg-muted/50 cursor-pointer transition-colors h-[68px]">
-            <Badge variant="outline" className={getStatusColor(log.status, log.statusCode)}>
-              {log.statusCode}
-            </Badge>
-
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <span className="font-medium text-sm truncate">{log.model}</span>
-                {log.actualModel && log.actualModel !== log.model && (
-                  <span className="text-xs text-muted-foreground">→ {log.actualModel}</span>
-                )}
-              </div>
-              <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
-                <span>{log.providerName || log.providerId}</span>
-                {log.accountName && (
-                  <>
-                    <span>·</span>
-                    <span>{log.accountName}</span>
-                  </>
-                )}
-              </div>
-            </div>
-
-            <div className="flex items-center gap-4 text-xs text-muted-foreground flex-shrink-0">
-              <span className="tabular-nums">{formatLatency(log.latency)}</span>
-              <span>{formatTime(log.timestamp)}</span>
-            </div>
-          </div>
-        </div>
-      )
-    },
-    []
-  )
-
-  const rowProps = useMemo<RowProps>(() => ({
-    logs,
-    onSelectLog: handleSelectLog,
-  }), [logs, handleSelectLog])
+  const renderPaginationItems = useMemo(() => {
+    if (totalPages <= 1) return []
+    
+    const items: (number | 'ellipsis')[] = []
+    const maxVisible = 5
+    
+    if (totalPages <= maxVisible + 2) {
+      // Show all pages
+      for (let i = 1; i <= totalPages; i++) {
+        items.push(i)
+      }
+    } else {
+      // Show first page
+      items.push(1)
+      
+      if (currentPage > 3) {
+        items.push('ellipsis')
+      }
+      
+      // Show pages around current page
+      const start = Math.max(2, currentPage - 1)
+      const end = Math.min(totalPages - 1, currentPage + 1)
+      
+      for (let i = start; i <= end; i++) {
+        items.push(i)
+      }
+      
+      if (currentPage < totalPages - 2) {
+        items.push('ellipsis')
+      }
+      
+      // Show last page
+      items.push(totalPages)
+    }
+    
+    return items
+  }, [currentPage, totalPages])
 
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-4">
           <h2 className="text-lg font-semibold">{t('logs.requestLogs')}</h2>
-          <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as 'all' | 'success' | 'error')}>
+          <Select value={statusFilter} onValueChange={(v) => {
+            setStatusFilter(v as 'all' | 'success' | 'error')
+            setCurrentPage(1)
+          }}>
             <SelectTrigger className="w-32">
               <SelectValue placeholder={t('logs.filter')} />
             </SelectTrigger>
@@ -273,12 +288,15 @@ export function RequestLogList() {
               <SelectItem value="error">{t('common.error')}</SelectItem>
             </SelectContent>
           </Select>
+          <span className="text-sm text-muted-foreground">
+            {totalLogs > 0 && `${totalLogs} ${t('logs.total') || 'total'}`}
+          </span>
         </div>
         <div className="flex items-center gap-2">
           <Button
             variant="outline"
             size="sm"
-            onClick={fetchLogs}
+            onClick={() => fetchLogs(currentPage)}
             disabled={isLoading}
           >
             <RefreshCw className={cn("h-4 w-4 mr-2", isLoading && "animate-spin")} />
@@ -288,7 +306,7 @@ export function RequestLogList() {
             variant="outline"
             size="sm"
             onClick={handleExportLogs}
-            disabled={logs.length === 0 || isExporting}
+            disabled={totalLogs === 0 || isExporting}
           >
             <Download className={cn("h-4 w-4 mr-2", isExporting && "animate-spin")} />
             {t('logs.exportLogs')}
@@ -301,7 +319,7 @@ export function RequestLogList() {
 
       {stats && <RequestLogStats stats={stats} />}
 
-      <div ref={containerRef} className="flex-1 mt-4">
+      <div className="flex-1 mt-4 space-y-2">
         {isLoading ? (
           <div className="flex items-center justify-center h-32 text-muted-foreground">
             {t('common.loading')}
@@ -311,17 +329,87 @@ export function RequestLogList() {
             {t('logs.noRequestLogs')}
           </div>
         ) : (
-          <List
-            rowComponent={RowComponent}
-            rowCount={logs.length}
-            rowHeight={ITEM_HEIGHT}
-            rowProps={rowProps}
-            style={{
-              width: containerSize.width,
-              height: containerSize.height,
-            }}
-            className="scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent"
-          />
+          <>
+            <div className="space-y-2">
+              {logs.map((log) => (
+                <div
+                  key={log.id}
+                  className="flex items-center gap-3 p-3 rounded-lg bg-muted/30 hover:bg-muted/50 cursor-pointer transition-colors h-[68px]"
+                  onClick={() => handleSelectLog(log)}
+                >
+                  <Badge variant="outline" className={getStatusColor(log.status, log.statusCode)}>
+                    {log.statusCode}
+                  </Badge>
+
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-sm truncate">{log.model}</span>
+                      {log.actualModel && log.actualModel !== log.model && (
+                        <span className="text-xs text-muted-foreground">→ {log.actualModel}</span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
+                      <span>{log.providerName || log.providerId}</span>
+                      {log.accountName && (
+                        <>
+                          <span>·</span>
+                          <span>{log.accountName}</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-4 text-xs text-muted-foreground flex-shrink-0">
+                    <span className="tabular-nums">{formatLatency(log.latency)}</span>
+                    <span>{formatTime(log.timestamp)}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {totalPages > 1 && (
+              <div className="flex items-center justify-center pt-4 pb-2">
+                <Pagination>
+                  <PaginationContent>
+                    <PaginationItem>
+                      <PaginationPrevious 
+                        onClick={() => handlePageChange(currentPage - 1)}
+                        className={cn(currentPage === 1 && "pointer-events-none opacity-50")}
+                      />
+                    </PaginationItem>
+                    
+                    {renderPaginationItems.map((item, index) => {
+                      if (item === 'ellipsis') {
+                        return (
+                          <PaginationItem key={`ellipsis-${index}`}>
+                            <PaginationEllipsis />
+                          </PaginationItem>
+                        )
+                      }
+                      
+                      return (
+                        <PaginationItem key={item}>
+                          <PaginationLink
+                            onClick={() => handlePageChange(item as number)}
+                            isActive={currentPage === item}
+                          >
+                            {item}
+                          </PaginationLink>
+                        </PaginationItem>
+                      )
+                    })}
+                    
+                    <PaginationItem>
+                      <PaginationNext
+                        onClick={() => handlePageChange(currentPage + 1)}
+                        className={cn(currentPage === totalPages && "pointer-events-none opacity-50")}
+                      />
+                    </PaginationItem>
+                  </PaginationContent>
+                </Pagination>
+              </div>
+            )}
+          </>
         )}
       </div>
 

@@ -5,6 +5,7 @@ import { createTrayManager, TrayManager } from './tray/TrayManager'
 import { registerIpcHandlers } from './ipc/handlers'
 import { UpdaterManager } from './updater'
 import { logManager as logger } from './logger/manager'
+import { sqliteStore } from './store/sqlite'
 
 // Override console.log in production to avoid high-frequency I/O blocking
 if (process.env.NODE_ENV !== 'development') {
@@ -137,6 +138,14 @@ function cleanup(): void {
   console.log('Application is exiting, performing cleanup...')
   const updaterManager = UpdaterManager.getInstance()
   updaterManager.destroy()
+  
+  // Close SQLite database connection
+  try {
+    sqliteStore.close()
+    console.log('[Cleanup] SQLite database connection closed')
+  } catch (error) {
+    console.error('[Cleanup] Failed to close SQLite database:', error)
+  }
 }
 
 export function restartApp(): void {

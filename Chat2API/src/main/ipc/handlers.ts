@@ -749,7 +749,14 @@ export async function registerIpcHandlers(mainWindow: BrowserWindow | null): Pro
     status?: 'success' | 'error'
     providerId?: string
     limit?: number
+    page?: number
+    pageSize?: number
   }) => {
+    // Support pagination
+    if (filter?.page !== undefined && filter?.pageSize !== undefined) {
+      return storeManager.getRequestLogs(undefined, filter, filter.page, filter.pageSize)
+    }
+    // Legacy mode
     return storeManager.getRequestLogs(filter?.limit, filter)
   })
 

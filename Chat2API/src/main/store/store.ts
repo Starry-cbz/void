@@ -34,6 +34,7 @@ import { BUILTIN_PROMPTS } from '../data/builtin-prompts'
 import { IpcChannels } from '../ipc/channels'
 
 import { builtinProviders as BUILTIN_PROVIDERS } from '../providers/builtin'
+import { sqliteStore } from './sqlite'
 
 // Dynamically import electron-store (ESM module)
 let Store: any = null
@@ -98,6 +99,15 @@ class StoreManager {
         encryptionKey: this.getEncryptionKey(),
       })
 
+      // Initialize SQLite for request logs
+      try {
+        sqliteStore.initialize()
+        console.log('[Store] SQLite database initialized successfully')
+      } catch (sqliteError) {
+        console.error('[Store] Failed to initialize SQLite, falling back to JSON storage:', sqliteError)
+        // Continue with JSON storage as fallback
+      }
+
       await this.initializeDefaultProviders()
       this.isInitialized = true
       this.initializationError = null
@@ -114,6 +124,14 @@ class StoreManager {
           defaults: this.getDefaultData(),
           encryptionKey: this.getEncryptionKey(),
         })
+        
+        // Try to initialize SQLite again
+        try {
+          sqliteStore.initialize()
+        } catch (sqliteError) {
+          console.error('[Store] SQLite initialization failed during recovery:', sqliteError)
+        }
+        
         this.isInitialized = true
         this.initializationError = null
         console.log('[Store] Successfully recovered from corrupted data')
@@ -901,29 +919,36 @@ class StoreManager {
     this.store!.set('logs', filtered)
   }
 
-  // ==================== Request Log Operations ====================
+  // ==================== Request Log Operations (SQLite) ====================
 
   /**
-   * Add Request Log Entry
+   * Add Request Log Entry - Uses SQLite for high performance
    */
   addRequestLog(entry: Omit<RequestLogEntry, 'id'>): RequestLogEntry {
     this.ensureInitialized()
-    const requestLogs = this.store!.get('requestLogs') || []
     
     const newEntry: RequestLogEntry = {
       ...entry,
       id: this.generateId(),
     }
     
-    requestLogs.push(newEntry)
-    
-    const config = this.getConfig()
-    const maxLogs = config.logRetentionDays * 500
-    if (requestLogs.length > maxLogs) {
-      requestLogs.splice(0, requestLogs.length - maxLogs)
+    try {
+      // Use SQLite for storage
+      sqliteStore.insertRequestLog(newEntry)
+    } catch (error) {
+      console.error('[Store] Failed to insert request log into SQLite:', error)
+      // Fallback to JSON storage if SQLite fails
+      const requestLogs = this.store!.get('requestLogs') || []
+      requestLogs.push(newEntry)
+      
+      const config = this.getConfig()
+      const maxLogs = config.logRetentionDays * 500
+      if (requestLogs.length > maxLogs) {
+        requestLogs.splice(0, requestLogs.length - maxLogs)
+      }
+      
+      this.store!.set('requestLogs', requestLogs)
     }
-    
-    this.store!.set('requestLogs', requestLogs)
 
     this.mainWindow?.webContents.send(IpcChannels.REQUEST_LOGS_NEW, newEntry)
 
@@ -931,163 +956,259 @@ class StoreManager {
   }
 
   /**
-   * Update Request Log Entry
+   * Update Request Log Entry - Uses SQLite
    */
   updateRequestLog(id: string, updates: Partial<RequestLogEntry>): boolean {
     this.ensureInitialized()
-    const requestLogs = this.store!.get('requestLogs') || []
-
-    const index = requestLogs.findIndex((l: RequestLogEntry) => l.id === id)
-    if (index === -1) return false
-
-    requestLogs[index] = { ...requestLogs[index], ...updates }
-    this.store!.set('requestLogs', requestLogs)
-
-    return true
+    
+    try {
+      return sqliteStore.updateRequestLog(id, updates)
+    } catch (error) {
+      console.error('[Store] Failed to update request log in SQLite:', error)
+      // Fallback to JSON storage
+      const requestLogs = this.store!.get('requestLogs') || []
+      const index = requestLogs.findIndex((l: RequestLogEntry) => l.id === id)
+      if (index === -1) return false
+      
+      requestLogs[index] = { ...requestLogs[index], ...updates }
+      this.store!.set('requestLogs', requestLogs)
+      return true
+    }
   }
 
   /**
-   * Get Request Logs
+   * Get Request Logs - Uses SQLite for high performance
+   * @param limit Limit count (deprecated, use page/pageSize instead)
+   * @param filter Filter options
+   * @param page Page number (1-based)
+   * @param pageSize Page size
    */
-  getRequestLogs(limit?: number, filter?: { status?: 'success' | 'error'; providerId?: string }): RequestLogEntry[] {
+  getRequestLogs(
+    limit?: number, 
+    filter?: { status?: 'success' | 'error'; providerId?: string },
+    page?: number,
+    pageSize?: number
+  ): RequestLogEntry[] | { logs: RequestLogEntry[]; total: number; page: number; pageSize: number } {
     this.ensureInitialized()
-    let requestLogs = this.store!.get('requestLogs') || []
     
-    if (filter?.status) {
-      requestLogs = requestLogs.filter((l: RequestLogEntry) => l.status === filter.status)
+    try {
+      // Use SQLite for querying
+      if (page !== undefined && pageSize !== undefined) {
+        const result = sqliteStore.getRequestLogs({
+          page,
+          pageSize,
+          status: filter?.status,
+          providerId: filter?.providerId,
+        })
+        
+        return {
+          logs: result.logs,
+          total: result.total,
+          page,
+          pageSize,
+        }
+      }
+      
+      // Legacy mode: return array
+      const actualLimit = limit || 200
+      const result = sqliteStore.getRequestLogs({
+        page: 1,
+        pageSize: actualLimit,
+        status: filter?.status,
+        providerId: filter?.providerId,
+      })
+      
+      return result.logs
+    } catch (error) {
+      console.error('[Store] Failed to get request logs from SQLite:', error)
+      // Fallback to JSON storage
+      let requestLogs = this.store!.get('requestLogs') || []
+      
+      if (filter?.status) {
+        requestLogs = requestLogs.filter((l: RequestLogEntry) => l.status === filter.status)
+      }
+      
+      if (filter?.providerId) {
+        requestLogs = requestLogs.filter((l: RequestLogEntry) => l.providerId === filter.providerId)
+      }
+      
+      requestLogs.sort((a: RequestLogEntry, b: RequestLogEntry) => b.timestamp - a.timestamp)
+      
+      if (page !== undefined && pageSize !== undefined) {
+        const total = requestLogs.length
+        const startIndex = (page - 1) * pageSize
+        const endIndex = startIndex + pageSize
+        const paginatedLogs = requestLogs.slice(startIndex, endIndex)
+        
+        return {
+          logs: paginatedLogs,
+          total,
+          page,
+          pageSize,
+        }
+      }
+      
+      if (limit && requestLogs.length > limit) {
+        requestLogs = requestLogs.slice(0, limit)
+      }
+      
+      return requestLogs
     }
-    
-    if (filter?.providerId) {
-      requestLogs = requestLogs.filter((l: RequestLogEntry) => l.providerId === filter.providerId)
-    }
-    
-    requestLogs.sort((a: RequestLogEntry, b: RequestLogEntry) => b.timestamp - a.timestamp)
-    
-    if (limit && requestLogs.length > limit) {
-      requestLogs = requestLogs.slice(0, limit)
-    }
-    
-    return requestLogs
   }
 
   /**
-   * Get Request Log By ID
+   * Get Request Log By ID - Uses SQLite
    */
   getRequestLogById(id: string): RequestLogEntry | undefined {
     this.ensureInitialized()
-    const requestLogs = this.store!.get('requestLogs') || []
-    return requestLogs.find((l: RequestLogEntry) => l.id === id)
+    
+    try {
+      return sqliteStore.getRequestLogById(id)
+    } catch (error) {
+      console.error('[Store] Failed to get request log from SQLite:', error)
+      // Fallback to JSON storage
+      const requestLogs = this.store!.get('requestLogs') || []
+      return requestLogs.find((l: RequestLogEntry) => l.id === id)
+    }
   }
 
   /**
-   * Clear Request Logs
+   * Clear Request Logs - Uses SQLite
    */
   clearRequestLogs(): void {
     this.ensureInitialized()
+    
+    try {
+      sqliteStore.clearRequestLogs()
+    } catch (error) {
+      console.error('[Store] Failed to clear request logs in SQLite:', error)
+    }
+    
+    // Also clear JSON storage for consistency
     this.store!.set('requestLogs', [])
     this.store!.set('statistics', DEFAULT_STATISTICS)
   }
 
   /**
-   * Export Request Logs
+   * Export Request Logs - Uses SQLite
    */
   exportRequestLogs(format: 'json' | 'txt' = 'json'): string {
     this.ensureInitialized()
-    const logs = this.store!.get('requestLogs') || []
+    
+    try {
+      return sqliteStore.exportRequestLogs(format)
+    } catch (error) {
+      console.error('[Store] Failed to export request logs from SQLite:', error)
+      // Fallback to JSON storage
+      const logs = this.store!.get('requestLogs') || []
 
-    if (format === 'json') {
-      return JSON.stringify(logs, null, 2)
+      if (format === 'json') {
+        return JSON.stringify(logs, null, 2)
+      }
+
+      return logs
+        .map((log: RequestLogEntry) => {
+          const time = new Date(log.timestamp).toISOString()
+          const status = log.status.toUpperCase().padEnd(7)
+          let line = `[${time}] [${status}] ${log.method} ${log.url} ${log.statusCode}`
+          
+          line += ` | Model: ${log.model}`
+          if (log.actualModel) {
+            line += ` -> ${log.actualModel}`
+          }
+          if (log.providerId) {
+            line += ` | Provider: ${log.providerId}`
+          }
+          if (log.accountId) {
+            line += ` | Account: ${log.accountId}`
+          }
+          line += ` | Latency: ${log.latency}ms`
+          if (log.errorMessage) {
+            line += ` | Error: ${log.errorMessage}`
+          }
+          if (log.userInput) {
+            const input = log.userInput.length > 100 ? log.userInput.substring(0, 100) + '...' : log.userInput
+            line += ` | Input: ${input}`
+          }
+          
+          return line
+        })
+        .join('\n')
     }
-
-    return logs
-      .map((log: RequestLogEntry) => {
-        const time = new Date(log.timestamp).toISOString()
-        const status = log.status.toUpperCase().padEnd(7)
-        let line = `[${time}] [${status}] ${log.method} ${log.url} ${log.statusCode}`
-        
-        line += ` | Model: ${log.model}`
-        if (log.actualModel) {
-          line += ` -> ${log.actualModel}`
-        }
-        if (log.providerId) {
-          line += ` | Provider: ${log.providerId}`
-        }
-        if (log.accountId) {
-          line += ` | Account: ${log.accountId}`
-        }
-        line += ` | Latency: ${log.latency}ms`
-        if (log.errorMessage) {
-          line += ` | Error: ${log.errorMessage}`
-        }
-        if (log.userInput) {
-          // Limit user input length for txt export to avoid huge lines
-          const input = log.userInput.length > 100 ? log.userInput.substring(0, 100) + '...' : log.userInput
-          line += ` | Input: ${input}`
-        }
-        
-        return line
-      })
-      .join('\n')
   }
 
   /**
-   * Get Request Log Statistics
+   * Get Request Log Statistics - Uses SQLite
    */
   getRequestLogStats(): { total: number; success: number; error: number; todayTotal: number; todaySuccess: number; todayError: number } {
     this.ensureInitialized()
-    const requestLogs = this.store!.get('requestLogs') || []
     
-    const today = new Date().toISOString().split('T')[0]
-    const todayStart = new Date(today).getTime()
-    const todayEnd = todayStart + 24 * 60 * 60 * 1000
-    
-    const todayLogs = requestLogs.filter((l: RequestLogEntry) => l.timestamp >= todayStart && l.timestamp < todayEnd)
-    
-    return {
-      total: requestLogs.length,
-      success: requestLogs.filter((l: RequestLogEntry) => l.status === 'success').length,
-      error: requestLogs.filter((l: RequestLogEntry) => l.status === 'error').length,
-      todayTotal: todayLogs.length,
-      todaySuccess: todayLogs.filter((l: RequestLogEntry) => l.status === 'success').length,
-      todayError: todayLogs.filter((l: RequestLogEntry) => l.status === 'error').length,
+    try {
+      return sqliteStore.getRequestLogStats()
+    } catch (error) {
+      console.error('[Store] Failed to get request log stats from SQLite:', error)
+      // Fallback to JSON storage
+      const requestLogs = this.store!.get('requestLogs') || []
+      
+      const today = new Date().toISOString().split('T')[0]
+      const todayStart = new Date(today).getTime()
+      const todayEnd = todayStart + 24 * 60 * 60 * 1000
+      
+      const todayLogs = requestLogs.filter((l: RequestLogEntry) => l.timestamp >= todayStart && l.timestamp < todayEnd)
+      
+      return {
+        total: requestLogs.length,
+        success: requestLogs.filter((l: RequestLogEntry) => l.status === 'success').length,
+        error: requestLogs.filter((l: RequestLogEntry) => l.status === 'error').length,
+        todayTotal: todayLogs.length,
+        todaySuccess: todayLogs.filter((l: RequestLogEntry) => l.status === 'success').length,
+        todayError: todayLogs.filter((l: RequestLogEntry) => l.status === 'error').length,
+      }
     }
   }
 
   /**
-   * Get Request Log Trend
+   * Get Request Log Trend - Uses SQLite
    */
   getRequestLogTrend(days: number = 7): { date: string; total: number; success: number; error: number; avgLatency: number }[] {
     this.ensureInitialized()
-    const requestLogs = this.store!.get('requestLogs') as RequestLogEntry[] || []
-    const now = Date.now()
-    const dayMs = 24 * 60 * 60 * 1000
-    const today = new Date().toISOString().split('T')[0]
-    const todayStart = new Date(today).getTime()
-    const trends: { date: string; total: number; success: number; error: number; avgLatency: number }[] = []
+    
+    try {
+      return sqliteStore.getRequestLogTrend(days)
+    } catch (error) {
+      console.error('[Store] Failed to get request log trend from SQLite:', error)
+      // Fallback to JSON storage
+      const requestLogs = this.store!.get('requestLogs') as RequestLogEntry[] || []
+      const now = Date.now()
+      const dayMs = 24 * 60 * 60 * 1000
+      const today = new Date().toISOString().split('T')[0]
+      const todayStart = new Date(today).getTime()
+      const trends: { date: string; total: number; success: number; error: number; avgLatency: number }[] = []
 
-    for (let i = days - 1; i >= 0; i--) {
-      const dayStart = todayStart - i * dayMs
-      const dayEnd = dayStart + dayMs
-      const date = new Date(dayStart).toISOString().split('T')[0]
+      for (let i = days - 1; i >= 0; i--) {
+        const dayStart = todayStart - i * dayMs
+        const dayEnd = dayStart + dayMs
+        const date = new Date(dayStart).toISOString().split('T')[0]
 
-      const dayLogs = requestLogs.filter(
-        (l: RequestLogEntry) => l.timestamp >= dayStart && l.timestamp < dayEnd
-      )
+        const dayLogs = requestLogs.filter(
+          (l: RequestLogEntry) => l.timestamp >= dayStart && l.timestamp < dayEnd
+        )
 
-      const successLogs = dayLogs.filter((l: RequestLogEntry) => l.status === 'success')
-      const errorLogs = dayLogs.filter((l: RequestLogEntry) => l.status === 'error')
-      const totalLatency = successLogs.reduce((sum: number, l: RequestLogEntry) => sum + l.latency, 0)
+        const successLogs = dayLogs.filter((l: RequestLogEntry) => l.status === 'success')
+        const errorLogs = dayLogs.filter((l: RequestLogEntry) => l.status === 'error')
+        const totalLatency = successLogs.reduce((sum: number, l: RequestLogEntry) => sum + l.latency, 0)
 
-      trends.push({
-        date,
-        total: dayLogs.length,
-        success: successLogs.length,
-        error: errorLogs.length,
-        avgLatency: successLogs.length > 0 ? Math.round(totalLatency / successLogs.length) : 0,
-      })
+        trends.push({
+          date,
+          total: dayLogs.length,
+          success: successLogs.length,
+          error: errorLogs.length,
+          avgLatency: successLogs.length > 0 ? Math.round(totalLatency / successLogs.length) : 0,
+        })
+      }
+
+      return trends
     }
-
-    return trends
   }
 
   // ==================== Statistics Operations ====================

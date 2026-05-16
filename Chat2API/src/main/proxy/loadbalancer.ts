@@ -126,6 +126,19 @@ export class LoadBalancer {
   }
 
   /**
+   * Strip thinking/fast suffixes from model name for matching
+   */
+  private stripModelSuffix(model: string): string {
+    if (model.endsWith('-thinking')) {
+      return model.slice(0, -9)
+    }
+    if (model.endsWith('-fast')) {
+      return model.slice(0, -5)
+    }
+    return model
+  }
+
+  /**
    * Check if provider supports model
    */
   private providerSupportsModel(provider: Provider, model: string): boolean {
@@ -134,6 +147,7 @@ export class LoadBalancer {
       return true
     }
 
+    // Try matching with original model name first
     const normalizedModel = model.toLowerCase()
     const supported = effectiveModels.some(m => {
       const normalizedSupported = m.displayName.toLowerCase()
@@ -145,6 +159,24 @@ export class LoadBalancer {
     
     if (supported) {
       return true
+    }
+
+    // If not matched, try stripping -thinking/-fast suffix and match base model
+    const baseModel = this.stripModelSuffix(model)
+    if (baseModel !== model) {
+      const normalizedBaseModel = baseModel.toLowerCase()
+      const baseSupported = effectiveModels.some(m => {
+        const normalizedSupported = m.displayName.toLowerCase()
+        if (normalizedSupported.endsWith('*')) {
+          return normalizedBaseModel.startsWith(normalizedSupported.slice(0, -1))
+        }
+        return normalizedSupported === normalizedBaseModel
+      })
+      
+      if (baseSupported) {
+        console.log(`[LoadBalancer] Model "${model}" matched base model "${baseModel}"`)
+        return true
+      }
     }
 
     const config = storeManager.getConfig()
@@ -171,6 +203,35 @@ export class LoadBalancer {
       if (actualSupported) {
         console.log(`[LoadBalancer] Model "${model}" (actualModel: "${actualModel}") supported by ${provider.name}`)
         return true
+      }
+    }
+    
+    // Also check global mapping for base model (without suffix)
+    if (baseModel !== model) {
+      const baseGlobalMapping = config.modelMappings[baseModel]
+      if (baseGlobalMapping) {
+        if (baseGlobalMapping.preferredProviderId) {
+          if (baseGlobalMapping.preferredProviderId === provider.id) {
+            console.log(`[LoadBalancer] Model "${model}" (base: "${baseModel}") matched preferred provider ${provider.name}`)
+            return true
+          }
+          return false
+        }
+        
+        const actualModel = baseGlobalMapping.actualModel
+        const normalizedActualModel = actualModel.toLowerCase()
+        const actualSupported = effectiveModels.some(m => {
+          const normalizedSupported = m.displayName.toLowerCase()
+          if (normalizedSupported.endsWith('*')) {
+            return normalizedActualModel.startsWith(normalizedSupported.slice(0, -1))
+          }
+          return normalizedSupported === normalizedActualModel
+        })
+        
+        if (actualSupported) {
+          console.log(`[LoadBalancer] Model "${model}" (base: "${baseModel}", actualModel: "${actualModel}") supported by ${provider.name}`)
+          return true
+        }
       }
     }
     

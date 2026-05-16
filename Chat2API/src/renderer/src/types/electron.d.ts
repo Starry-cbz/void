@@ -355,6 +355,15 @@ interface RequestLogFilter {
   status?: 'success' | 'error'
   providerId?: string
   limit?: number
+  page?: number
+  pageSize?: number
+}
+
+interface PaginatedRequestLogs {
+  logs: RequestLogEntry[]
+  total: number
+  page: number
+  pageSize: number
 }
 
 interface RequestLogStats {
@@ -375,7 +384,7 @@ interface RequestLogTrend {
 }
 
 interface RequestLogsAPI {
-  get: (filter?: RequestLogFilter) => Promise<RequestLogEntry[]>
+  get: (filter?: RequestLogFilter) => Promise<RequestLogEntry[] | PaginatedRequestLogs>
   getById: (id: string) => Promise<RequestLogEntry | undefined>
   getStats: () => Promise<RequestLogStats>
   getTrend: (days?: number) => Promise<RequestLogTrend[]>

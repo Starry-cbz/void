@@ -115,7 +115,11 @@ export class RequestForwarder {
     const contentEmpty = content === null || content === undefined || (typeof content === 'string' && content.trim() === '')
     const reasoningEmpty = reasoning === null || reasoning === undefined || (typeof reasoning === 'string' && reasoning.trim() === '')
     const toolCallsEmpty = !Array.isArray(toolCalls) || toolCalls.length === 0
-    return contentEmpty && reasoningEmpty && toolCallsEmpty
+    
+    // Check if content only contains error messages
+    const isErrorOnly = typeof content === 'string' && /^\s*\[.*Error.*\]\s*$/.test(content)
+    
+    return (contentEmpty || isErrorOnly) && reasoningEmpty && toolCallsEmpty
   }
 
   private sseHasMeaningfulDelta(sseData: string): boolean {
@@ -127,7 +131,15 @@ export class RequestForwarder {
         const payload = JSON.parse(line.slice(6))
         const delta = payload?.choices?.[0]?.delta
         if (!delta) continue
-        if (typeof delta.content === 'string' && delta.content.length > 0) return true
+        
+        // Check if content is an error message
+        if (typeof delta.content === 'string') {
+          if (/^\s*\[.*Error.*\]\s*$/.test(delta.content)) {
+            return false
+          }
+          if (delta.content.length > 0) return true
+        }
+        
         if (typeof delta.reasoning_content === 'string' && delta.reasoning_content.length > 0) return true
         if (Array.isArray(delta.tool_calls) && delta.tool_calls.length > 0) return true
       } catch {
@@ -481,114 +493,133 @@ CRITICAL RULES:
     context: ProxyContext
   ): Promise<ForwardResult> {
     const startTime = Date.now()
+    const config = storeManager.getConfig()
+    const maxRetries = config.retryCount
+    let attempt = 0
 
-    // Check if it is a DeepSeek provider, use dedicated adapter
-    if (DeepSeekAdapter.isDeepSeekProvider(provider)) {
-      return this.forwardDeepSeek(request, account, provider, actualModel, startTime)
-    }
-
-    // Check if it is a GLM provider, use dedicated adapter
-    if (GLMAdapter.isGLMProvider(provider)) {
-      return this.forwardGLM(request, account, provider, actualModel, startTime)
-    }
-
-    // Check if it is a Kimi provider, use dedicated adapter
-    if (KimiAdapter.isKimiProvider(provider)) {
-      return this.forwardKimi(request, account, provider, actualModel, startTime)
-    }
-
-    // Check if it is a Qwen provider, use dedicated adapter
-    if (QwenAdapter.isQwenProvider(provider)) {
-      return this.forwardQwen(request, account, provider, actualModel, startTime)
-    }
-
-    // Check if it is a Qwen AI (International) provider, use dedicated adapter
-    if (QwenAiAdapter.isQwenAiProvider(provider)) {
-      return this.forwardQwenAi(request, account, provider, actualModel, startTime)
-    }
-
-    // Check if it is a Z.ai provider, use dedicated adapter
-    if (ZaiAdapter.isZaiProvider(provider)) {
-      return this.forwardZai(request, account, provider, actualModel, startTime)
-    }
-
-    // Check if it is a MiniMax provider, use dedicated adapter
-    if (MiniMaxAdapter.isMiniMaxProvider(provider)) {
-      return this.forwardMiniMax(request, account, provider, actualModel, startTime)
-    }
-
-    // Check if it is a Mimo provider, use dedicated adapter
-    if (MimoAdapter.isMimoProvider(provider)) {
-      return this.forwardMimo(request, account, provider, actualModel, startTime)
-    }
-
-    // Check if it is a Perplexity provider, use dedicated adapter
-    if (PerplexityAdapter.isPerplexityProvider(provider)) {
-      return this.forwardPerplexity(request, account, provider, actualModel, startTime)
-    }
-
-    try {
-      const chatPath = provider.chatPath || '/chat/completions'
-      const url = this.buildUrl(provider, chatPath)
-      const headers = this.buildHeaders(provider, account)
-      const body = this.buildRequestBody(request, actualModel, account)
-
-      const axiosConfig: AxiosRequestConfig = {
-        method: 'POST',
-        url,
-        headers,
-        data: body,
-        timeout: proxyStatusManager.getConfig().timeout,
-        responseType: request.stream ? 'stream' : 'json',
-        validateStatus: () => true,
-      }
-
-      const response: AxiosResponse = await this.axiosInstance.request(axiosConfig)
-      const latency = Date.now() - startTime
-
-      if (response.status >= 400) {
-        return {
-          success: false,
-          status: response.status,
-          error: this.extractErrorMessage(response),
-          latency,
+    while (attempt <= maxRetries) {
+      try {
+        // Check if it is a DeepSeek provider, use dedicated adapter
+        if (DeepSeekAdapter.isDeepSeekProvider(provider)) {
+          return this.forwardDeepSeek(request, account, provider, actualModel, startTime)
         }
-      }
 
-      if (request.stream) {
+        // Check if it is a GLM provider, use dedicated adapter
+        if (GLMAdapter.isGLMProvider(provider)) {
+          return this.forwardGLM(request, account, provider, actualModel, startTime)
+        }
+
+        // Check if it is a Kimi provider, use dedicated adapter
+        if (KimiAdapter.isKimiProvider(provider)) {
+          return this.forwardKimi(request, account, provider, actualModel, startTime)
+        }
+
+        // Check if it is a Qwen provider, use dedicated adapter
+        if (QwenAdapter.isQwenProvider(provider)) {
+          return this.forwardQwen(request, account, provider, actualModel, startTime)
+        }
+
+        // Check if it is a Qwen AI (International) provider, use dedicated adapter
+        if (QwenAiAdapter.isQwenAiProvider(provider)) {
+          return this.forwardQwenAi(request, account, provider, actualModel, startTime)
+        }
+
+        // Check if it is a Z.ai provider, use dedicated adapter
+        if (ZaiAdapter.isZaiProvider(provider)) {
+          return this.forwardZai(request, account, provider, actualModel, startTime)
+        }
+
+        // Check if it is a MiniMax provider, use dedicated adapter
+        if (MiniMaxAdapter.isMiniMaxProvider(provider)) {
+          return this.forwardMiniMax(request, account, provider, actualModel, startTime)
+        }
+
+        // Check if it is a Mimo provider, use dedicated adapter
+        if (MimoAdapter.isMimoProvider(provider)) {
+          return this.forwardMimo(request, account, provider, actualModel, startTime)
+        }
+
+        // Check if it is a Perplexity provider, use dedicated adapter
+        if (PerplexityAdapter.isPerplexityProvider(provider)) {
+          return this.forwardPerplexity(request, account, provider, actualModel, startTime)
+        }
+
+        const chatPath = provider.chatPath || '/chat/completions'
+        const url = this.buildUrl(provider, chatPath)
+        const headers = this.buildHeaders(provider, account)
+        const body = this.buildRequestBody(request, actualModel, account)
+
+        const axiosConfig: AxiosRequestConfig = {
+          method: 'POST',
+          url,
+          headers,
+          data: body,
+          timeout: proxyStatusManager.getConfig().timeout,
+          responseType: request.stream ? 'stream' : 'json',
+          validateStatus: () => true,
+        }
+
+        const response: AxiosResponse = await this.axiosInstance.request(axiosConfig)
+        const latency = Date.now() - startTime
+
+        if (response.status >= 400) {
+          return {
+            success: false,
+            status: response.status,
+            error: this.extractErrorMessage(response),
+            latency,
+          }
+        }
+
+        if (request.stream) {
+          return {
+            success: true,
+            status: response.status,
+            headers: this.extractHeaders(response.headers),
+            stream: response.data,
+            latency,
+          }
+        }
+
+        if (this.isEmptyChatCompletionBody(response.data) && attempt < maxRetries) {
+          attempt++
+          console.log(`[Forwarder] Empty response detected, retrying (${attempt}/${maxRetries})`)
+          await this.delay(1500)
+          continue
+        }
+
         return {
           success: true,
           status: response.status,
           headers: this.extractHeaders(response.headers),
-          stream: response.data,
+          body: response.data,
           latency,
         }
-      }
+      } catch (error) {
+        const latency = Date.now() - startTime
 
-      return {
-        success: true,
-        status: response.status,
-        headers: this.extractHeaders(response.headers),
-        body: response.data,
-        latency,
-      }
-    } catch (error) {
-      const latency = Date.now() - startTime
+        if (error instanceof AxiosError) {
+          return {
+            success: false,
+            status: error.response?.status,
+            error: error.message,
+            latency,
+          }
+        }
 
-      if (error instanceof AxiosError) {
         return {
           success: false,
-          status: error.response?.status,
-          error: error.message,
+          error: error instanceof Error ? error.message : 'Unknown error',
           latency,
         }
       }
+    }
 
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-        latency,
-      }
+    const latency = Date.now() - startTime
+    return {
+      success: false,
+      error: 'Empty response after retries',
+      latency,
     }
   }
 
@@ -602,104 +633,124 @@ CRITICAL RULES:
     actualModel: string,
     startTime: number
   ): Promise<ForwardResult> {
-    try {
-      const transformed = this.transformRequestForPromptToolUse(request, provider)
-      const transformedRequest = {
-        ...request,
-        messages: transformed.messages,
-        tools: transformed.tools,
-      }
+    const config = storeManager.getConfig()
+    const maxRetries = config.retryCount
+    let attempt = 0
 
-      const adapter = new DeepSeekAdapter(provider, account)
-      
-      const { response, sessionId } = await adapter.chatCompletion({
-        model: request.model,
-        messages: transformedRequest.messages as any,
-        stream: transformedRequest.stream,
-        temperature: transformedRequest.temperature,
-        web_search: transformedRequest.web_search,
-        reasoning_effort: transformedRequest.reasoning_effort,
-      })
-
-      const latency = Date.now() - startTime
-
-      if (response.status >= 400) {
-        let errorMessage = `HTTP ${response.status}`
-        if (response.data) {
-          if (typeof response.data === 'string') {
-            errorMessage = response.data
-          } else if (response.data.msg) {
-            errorMessage = response.data.msg
-          } else if (response.data.error?.message) {
-            errorMessage = response.data.error.message
-          }
+    while (attempt <= maxRetries) {
+      try {
+        const transformed = this.transformRequestForPromptToolUse(request, provider)
+        const transformedRequest = {
+          ...request,
+          messages: transformed.messages,
+          tools: transformed.tools,
         }
-        return {
-          success: false,
-          status: response.status,
-          error: errorMessage,
-          latency,
-        }
-      }
 
-      // Prepare callback for deleting session
-      const deleteSessionCallback = shouldDeleteSession()
-        ? async () => {
-            try {
-              await adapter.deleteSession(sessionId)
-            } catch (error) {
-              console.error('[DeepSeek] Failed to delete session:', error)
+        const adapter = new DeepSeekAdapter(provider, account)
+        
+        const { response, sessionId } = await adapter.chatCompletion({
+          model: request.model,
+          messages: transformedRequest.messages as any,
+          stream: transformedRequest.stream,
+          temperature: transformedRequest.temperature,
+          web_search: transformedRequest.web_search,
+          reasoning_effort: transformedRequest.reasoning_effort,
+        })
+
+        const latency = Date.now() - startTime
+
+        if (response.status >= 400) {
+          let errorMessage = `HTTP ${response.status}`
+          if (response.data) {
+            if (typeof response.data === 'string') {
+              errorMessage = response.data
+            } else if (response.data.msg) {
+              errorMessage = response.data.msg
+            } else if (response.data.error?.message) {
+              errorMessage = response.data.error.message
             }
           }
-        : undefined
+          return {
+            success: false,
+            status: response.status,
+            error: errorMessage,
+            latency,
+          }
+        }
 
-      // DeepSeek always returns streaming response
-      const handler = new DeepSeekStreamHandler(
-        actualModel,
-        sessionId,
-        deleteSessionCallback,
-        transformedRequest.web_search,
-        transformedRequest.reasoning_effort
-      )
-      
-      if (request.stream) {
-        const transformedStream = await handler.handleStream(response.data)
+        // Prepare callback for deleting session
+        const deleteSessionCallback = shouldDeleteSession()
+          ? async () => {
+              try {
+                await adapter.deleteSession(sessionId)
+              } catch (error) {
+                console.error('[DeepSeek] Failed to delete session:', error)
+              }
+            }
+          : undefined
+
+        // DeepSeek always returns streaming response
+        const handler = new DeepSeekStreamHandler(
+          actualModel,
+          sessionId,
+          deleteSessionCallback,
+          transformedRequest.web_search,
+          transformedRequest.reasoning_effort
+        )
         
+        if (request.stream) {
+          const transformedStream = await handler.handleStream(response.data)
+          
+          return {
+            success: true,
+            status: response.status,
+            headers: this.extractHeaders(response.headers),
+            stream: transformedStream,
+            skipTransform: true,
+            latency,
+            providerSessionId: sessionId,
+          }
+        }
+
+        // Non-streaming requests need to collect stream data and convert
+        const result = await handler.handleNonStream(response.data)
+        
+        this.applyToolCallsToResponse(result, request.model, request.tools)
+        
+        if (this.isEmptyChatCompletionBody(result) && attempt < maxRetries) {
+          attempt++
+          console.log(`[DeepSeek] Empty response detected, retrying (${attempt}/${maxRetries})`)
+          await this.delay(1500)
+          continue
+        }
+        
+        if (deleteSessionCallback) {
+          await deleteSessionCallback()
+        }
+
         return {
           success: true,
           status: response.status,
           headers: this.extractHeaders(response.headers),
-          stream: transformedStream,
-          skipTransform: true,
+          body: result,
           latency,
           providerSessionId: sessionId,
         }
+      } catch (error) {
+        const latency = Date.now() - startTime
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error',
+          latency,
+        }
       }
+    }
 
-      // Non-streaming requests need to collect stream data and convert
-      const result = await handler.handleNonStream(response.data)
-      
-      this.applyToolCallsToResponse(result, request.model, request.tools)
-      
-      if (deleteSessionCallback) {
-        await deleteSessionCallback()
-      }
-
-      return {
-        success: true,
-        status: response.status,
-        headers: this.extractHeaders(response.headers),
-        body: result,
-        latency,
-        providerSessionId: sessionId,
-      }
-    } catch (error) {
-      const latency = Date.now() - startTime
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-        latency,
-      }
+    const latency = Date.now() - startTime
+    return {
+      success: false,
+      error: 'Empty response after retries',
+      latency,
     }
   }
 
@@ -713,105 +764,125 @@ CRITICAL RULES:
     actualModel: string,
     startTime: number
   ): Promise<ForwardResult> {
-    try {
-      const transformed = this.transformRequestForPromptToolUse(request, provider)
-      const transformedRequest = {
-        ...request,
-        messages: transformed.messages,
-        tools: transformed.tools,
-      }
+    const config = storeManager.getConfig()
+    const maxRetries = config.retryCount
+    let attempt = 0
 
-      const adapter = new GLMAdapter(provider, account)
-      const { response, conversationId } = await adapter.chatCompletion({
-        model: actualModel,
-        originalModel: request.model,
-        messages: transformedRequest.messages,
-        stream: transformedRequest.stream,
-        temperature: transformedRequest.temperature,
-        web_search: transformedRequest.web_search,
-        reasoning_effort: transformedRequest.reasoning_effort,
-        deep_research: transformedRequest.deep_research,
-      })
-
-      const latency = Date.now() - startTime
-
-      if (response.status >= 400) {
-        let errorMessage = `HTTP ${response.status}`
-        if (response.data) {
-          if (typeof response.data === 'string') {
-            errorMessage = response.data
-          } else if (response.data.msg) {
-            errorMessage = response.data.msg
-          } else if (response.data.message) {
-            errorMessage = response.data.message
-          } else if (response.data.error?.message) {
-            errorMessage = response.data.error.message
-          }
+    while (attempt <= maxRetries) {
+      try {
+        const transformed = this.transformRequestForPromptToolUse(request, provider)
+        const transformedRequest = {
+          ...request,
+          messages: transformed.messages,
+          tools: transformed.tools,
         }
-        return {
-          success: false,
-          status: response.status,
-          error: errorMessage,
-          latency,
-        }
-      }
 
-      const handler = new GLMStreamHandler(actualModel)
-      
-      if (request.stream) {
-        const transformedStream = await handler.handleStream(response.data)
-        
-        // If delete session after chat is enabled, we need to handle it after stream ends
-        if (shouldDeleteSession()) {
-          const originalEnd = transformedStream.end.bind(transformedStream)
-          transformedStream.end = function(chunk?: any, encoding?: any, callback?: any) {
-            const convId = handler.getConversationId()
-            if (convId) {
-              adapter.deleteConversation(convId).catch(err => {
-                console.error('[GLM] Failed to delete session:', err)
-              })
+        const adapter = new GLMAdapter(provider, account)
+        const { response, conversationId } = await adapter.chatCompletion({
+          model: actualModel,
+          originalModel: request.model,
+          messages: transformedRequest.messages,
+          stream: transformedRequest.stream,
+          temperature: transformedRequest.temperature,
+          web_search: transformedRequest.web_search,
+          reasoning_effort: transformedRequest.reasoning_effort,
+          deep_research: transformedRequest.deep_research,
+        })
+
+        const latency = Date.now() - startTime
+
+        if (response.status >= 400) {
+          let errorMessage = `HTTP ${response.status}`
+          if (response.data) {
+            if (typeof response.data === 'string') {
+              errorMessage = response.data
+            } else if (response.data.msg) {
+              errorMessage = response.data.msg
+            } else if (response.data.message) {
+              errorMessage = response.data.message
+            } else if (response.data.error?.message) {
+              errorMessage = response.data.error.message
             }
-            return originalEnd(chunk, encoding, callback)
+          }
+          return {
+            success: false,
+            status: response.status,
+            error: errorMessage,
+            latency,
           }
         }
+
+        const handler = new GLMStreamHandler(actualModel)
         
+        if (request.stream) {
+          const transformedStream = await handler.handleStream(response.data)
+          
+          // If delete session after chat is enabled, we need to handle it after stream ends
+          if (shouldDeleteSession()) {
+            const originalEnd = transformedStream.end.bind(transformedStream)
+            transformedStream.end = function(chunk?: any, encoding?: any, callback?: any) {
+              const convId = handler.getConversationId()
+              if (convId) {
+                adapter.deleteConversation(convId).catch(err => {
+                  console.error('[GLM] Failed to delete session:', err)
+                })
+              }
+              return originalEnd(chunk, encoding, callback)
+            }
+          }
+          
+          return {
+            success: true,
+            status: response.status,
+            headers: this.extractHeaders(response.headers),
+            stream: transformedStream,
+            skipTransform: true,
+            latency,
+            providerSessionId: handler.getConversationId(),
+          }
+        }
+
+        const result = await handler.handleNonStream(response.data)
+        
+        this.applyToolCallsToResponse(result, request.model, request.tools)
+        
+        if (this.isEmptyChatCompletionBody(result) && attempt < maxRetries) {
+          attempt++
+          console.log(`[GLM] Empty response detected, retrying (${attempt}/${maxRetries})`)
+          await this.delay(1500)
+          continue
+        }
+        
+        if (shouldDeleteSession()) {
+          const convId = handler.getConversationId()
+          if (convId) {
+            await adapter.deleteConversation(convId)
+          }
+        }
+
         return {
           success: true,
           status: response.status,
           headers: this.extractHeaders(response.headers),
-          stream: transformedStream,
-          skipTransform: true,
+          body: result,
           latency,
-          providerSessionId: handler.getConversationId(),
+          providerSessionId: handler.getConversationId() ?? undefined,
+        }
+      } catch (error) {
+        const latency = Date.now() - startTime
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error',
+          latency,
         }
       }
+    }
 
-      const result = await handler.handleNonStream(response.data)
-      
-      this.applyToolCallsToResponse(result, request.model, request.tools)
-      
-      if (shouldDeleteSession()) {
-        const convId = handler.getConversationId()
-        if (convId) {
-          await adapter.deleteConversation(convId)
-        }
-      }
-
-      return {
-        success: true,
-        status: response.status,
-        headers: this.extractHeaders(response.headers),
-        body: result,
-        latency,
-        providerSessionId: handler.getConversationId() ?? undefined,
-      }
-    } catch (error) {
-      const latency = Date.now() - startTime
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-        latency,
-      }
+    const latency = Date.now() - startTime
+    return {
+      success: false,
+      error: 'Empty response after retries',
+      latency,
     }
   }
 
@@ -822,88 +893,108 @@ CRITICAL RULES:
     actualModel: string,
     startTime: number
   ): Promise<ForwardResult> {
-    try {
-      const transformed = this.transformRequestForPromptToolUse(request, provider)
-      
-      const adapter = new KimiAdapter(provider, account)
-      const { response, conversationId } = await adapter.chatCompletion({
-        model: actualModel,
-        originalModel: request.model,
-        messages: transformed.messages,
-        stream: request.stream,
-        temperature: request.temperature,
-        enableThinking: !!request.reasoning_effort,
-        enableWebSearch: !!request.web_search,
-      })
+    const config = storeManager.getConfig()
+    const maxRetries = config.retryCount
+    let attempt = 0
 
-      const latency = Date.now() - startTime
-
-      if (response.status >= 400) {
-        let errorMessage = `HTTP ${response.status}`
-        return {
-          success: false,
-          status: response.status,
-          error: errorMessage,
-          latency,
-        }
-      }
-
-      const handler = new KimiStreamHandler(actualModel, conversationId, !!request.reasoning_effort)
-      
-      if (request.stream) {
-        const transformedStream = await handler.handleStream(response.data)
+    while (attempt <= maxRetries) {
+      try {
+        const transformed = this.transformRequestForPromptToolUse(request, provider)
         
-        // Add delete conversation callback if needed
-        if (shouldDeleteSession()) {
-          const originalEnd = transformedStream.end.bind(transformedStream)
-          transformedStream.end = function(chunk?: any, encoding?: any, callback?: any) {
-            const realChatId = handler.getConversationId()
-            if (realChatId && realChatId.startsWith('kimi-') === false) {
-              adapter.deleteConversation(realChatId).catch(err => {
-                console.error('[Kimi] Failed to delete conversation:', err)
-              })
-            }
-            return originalEnd(chunk, encoding, callback)
+        const adapter = new KimiAdapter(provider, account)
+        const { response, conversationId } = await adapter.chatCompletion({
+          model: actualModel,
+          originalModel: request.model,
+          messages: transformed.messages,
+          stream: request.stream,
+          temperature: request.temperature,
+          enableThinking: !!request.reasoning_effort,
+          enableWebSearch: !!request.web_search,
+        })
+
+        const latency = Date.now() - startTime
+
+        if (response.status >= 400) {
+          let errorMessage = `HTTP ${response.status}`
+          return {
+            success: false,
+            status: response.status,
+            error: errorMessage,
+            latency,
           }
         }
+
+        const handler = new KimiStreamHandler(actualModel, conversationId, !!request.reasoning_effort)
         
+        if (request.stream) {
+          const transformedStream = await handler.handleStream(response.data)
+          
+          // Add delete conversation callback if needed
+          if (shouldDeleteSession()) {
+            const originalEnd = transformedStream.end.bind(transformedStream)
+            transformedStream.end = function(chunk?: any, encoding?: any, callback?: any) {
+              const realChatId = handler.getConversationId()
+              if (realChatId && realChatId.startsWith('kimi-') === false) {
+                adapter.deleteConversation(realChatId).catch(err => {
+                  console.error('[Kimi] Failed to delete conversation:', err)
+                })
+              }
+              return originalEnd(chunk, encoding, callback)
+            }
+          }
+          
+          return {
+            success: true,
+            status: response.status,
+            headers: this.extractHeaders(response.headers),
+            stream: transformedStream,
+            skipTransform: true,
+            latency,
+            providerSessionId: undefined,
+          }
+        }
+
+        const result = await handler.handleNonStream(response.data)
+
+        this.applyToolCallsToResponse(result, request.model, request.tools)
+
+        if (this.isEmptyChatCompletionBody(result) && attempt < maxRetries) {
+          attempt++
+          console.log(`[Kimi] Empty response detected, retrying (${attempt}/${maxRetries})`)
+          await this.delay(1500)
+          continue
+        }
+
+        if (shouldDeleteSession()) {
+          const realChatId = handler.getConversationId()
+          if (realChatId && realChatId.startsWith('kimi-') === false) {
+            await adapter.deleteConversation(realChatId)
+          }
+        }
+
         return {
           success: true,
           status: response.status,
           headers: this.extractHeaders(response.headers),
-          stream: transformedStream,
-          skipTransform: true,
+          body: result,
           latency,
-          providerSessionId: undefined,
+          providerSessionId: handler.getConversationId() ?? undefined,
+        }
+      } catch (error) {
+        const latency = Date.now() - startTime
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error',
+          latency,
         }
       }
+    }
 
-      const result = await handler.handleNonStream(response.data)
-
-      this.applyToolCallsToResponse(result, request.model, request.tools)
-
-      if (shouldDeleteSession()) {
-        const realChatId = handler.getConversationId()
-        if (realChatId && realChatId.startsWith('kimi-') === false) {
-          await adapter.deleteConversation(realChatId)
-        }
-      }
-
-      return {
-        success: true,
-        status: response.status,
-        headers: this.extractHeaders(response.headers),
-        body: result,
-        latency,
-        providerSessionId: handler.getConversationId() ?? undefined,
-      }
-    } catch (error) {
-      const latency = Date.now() - startTime
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-        latency,
-      }
+    const latency = Date.now() - startTime
+    return {
+      success: false,
+      error: 'Empty response after retries',
+      latency,
     }
   }
 
@@ -1336,94 +1427,114 @@ CRITICAL RULES:
   ): Promise<ForwardResult> {
     console.log('[forwardMiniMax] actualModel:', actualModel)
     console.log('[forwardMiniMax] provider.modelMappings:', provider.modelMappings)
-    try {
-      const transformed = this.transformRequestForPromptToolUse(request, provider)
-      
-      const adapter = new MiniMaxAdapter(provider, account)
-      const { response, stream, chatId } = await adapter.chatCompletion({
-        model: actualModel,
-        originalModel: request.model,
-        messages: transformed.messages as any,
-        stream: request.stream,
-        temperature: request.temperature,
-      })
+    const config = storeManager.getConfig()
+    const maxRetries = config.retryCount
+    let attempt = 0
 
-      const latency = Date.now() - startTime
+    while (attempt <= maxRetries) {
+      try {
+        const transformed = this.transformRequestForPromptToolUse(request, provider)
+        
+        const adapter = new MiniMaxAdapter(provider, account)
+        const { response, stream, chatId } = await adapter.chatCompletion({
+          model: actualModel,
+          originalModel: request.model,
+          messages: transformed.messages as any,
+          stream: request.stream,
+          temperature: request.temperature,
+        })
 
-      if (response && response.status >= 400) {
-        let errorMessage = `HTTP ${response.status}`
-        return {
-          success: false,
-          status: response.status,
-          error: errorMessage,
-          latency,
+        const latency = Date.now() - startTime
+
+        if (response && response.status >= 400) {
+          let errorMessage = `HTTP ${response.status}`
+          return {
+            success: false,
+            status: response.status,
+            error: errorMessage,
+            latency,
+          }
         }
-      }
 
-      const deleteChatCallback = shouldDeleteSession()
-        ? async (cid: string) => {
-            try {
-              await adapter.deleteChat(cid)
-            } catch (error) {
-              console.error('[MiniMax] Failed to delete chat:', error)
+        const deleteChatCallback = shouldDeleteSession()
+          ? async (cid: string) => {
+              try {
+                await adapter.deleteChat(cid)
+              } catch (error) {
+                console.error('[MiniMax] Failed to delete chat:', error)
+              }
+            }
+          : undefined
+
+        if (request.stream === true && stream) {
+          console.log('[forwardMiniMax] Using polling stream')
+          
+          if (deleteChatCallback) {
+            const originalStream = stream.stream as unknown as PassThrough
+            const originalEnd = originalStream.end.bind(originalStream)
+            originalStream.end = function(chunk?: any, encoding?: any, callback?: any) {
+              deleteChatCallback(chatId).catch(err => {
+                console.error('[MiniMax] Failed to delete chat:', err)
+              })
+              return originalEnd(chunk, encoding, callback)
             }
           }
-        : undefined
-
-      if (request.stream === true && stream) {
-        console.log('[forwardMiniMax] Using polling stream')
-        
-        if (deleteChatCallback) {
-          const originalStream = stream.stream as unknown as PassThrough
-          const originalEnd = originalStream.end.bind(originalStream)
-          originalStream.end = function(chunk?: any, encoding?: any, callback?: any) {
-            deleteChatCallback(chatId).catch(err => {
-              console.error('[MiniMax] Failed to delete chat:', err)
-            })
-            return originalEnd(chunk, encoding, callback)
+          
+          return {
+            success: true,
+            status: 200,
+            headers: {},
+            stream: stream.stream as any,
+            skipTransform: true,
+            latency,
+            providerSessionId: chatId,
           }
         }
-        
+
+        if (response) {
+          this.applyToolCallsToResponse(response.data, request.model, request.tools)
+          
+          if (this.isEmptyChatCompletionBody(response.data) && attempt < maxRetries) {
+            attempt++
+            console.log(`[MiniMax] Empty response detected, retrying (${attempt}/${maxRetries})`)
+            await this.delay(1500)
+            continue
+          }
+          
+          if (deleteChatCallback) {
+            await deleteChatCallback(chatId)
+          }
+
+          return {
+            success: true,
+            status: response.status,
+            headers: this.extractHeaders(response.headers),
+            body: response.data,
+            latency,
+            providerSessionId: chatId,
+          }
+        }
+
         return {
-          success: true,
-          status: 200,
-          headers: {},
-          stream: stream.stream as any,
-          skipTransform: true,
+          success: false,
+          error: 'No response or stream received',
           latency,
-          providerSessionId: chatId,
         }
-      }
-
-      if (response) {
-        this.applyToolCallsToResponse(response.data, request.model, request.tools)
-        
-        if (deleteChatCallback) {
-          await deleteChatCallback(chatId)
-        }
-
+      } catch (error) {
+        const latency = Date.now() - startTime
         return {
-          success: true,
-          status: response.status,
-          headers: this.extractHeaders(response.headers),
-          body: response.data,
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error',
           latency,
-          providerSessionId: chatId,
         }
       }
+    }
 
-      return {
-        success: false,
-        error: 'No response or stream received',
-        latency,
-      }
-    } catch (error) {
-      const latency = Date.now() - startTime
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-        latency,
-      }
+    const latency = Date.now() - startTime
+    return {
+      success: false,
+      error: 'Empty response after retries',
+      latency,
     }
   }
 

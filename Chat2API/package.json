@@ -1,6 +1,6 @@
 {
   "name": "chat2api",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Chat2API 管理器 - 统一管理多个 AI 服务提供商，提供 OpenAI 兼容 API 接口",
   "main": "./out/main/index.js",
   "author": {
@@ -46,6 +46,7 @@
     "@radix-ui/react-tooltip": "^1.2.8",
     "ali-oss": "^6.23.0",
     "axios": "^1.7.7",
+    "better-sqlite3": "^12.10.0",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
     "electron-store": "^10.0.0",
@@ -61,6 +62,7 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-i18next": "^16.5.4",
+    "react-is": "^19.2.6",
     "react-router-dom": "^6.28.0",
     "react-window": "^2.2.7",
     "recharts": "^3.7.0",
@@ -72,6 +74,7 @@
     "dmg-license": "^1.0.11"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
     "@types/koa": "^2.15.0",
     "@types/koa-bodyparser": "^4.3.12",
     "@types/koa-router": "^7.4.8",
@@ -97,6 +100,7 @@
     "appId": "com.chat2api.manager",
     "productName": "Chat2API",
     "copyright": "Copyright © 2026 Chat2API Team",
+    "npmRebuild": false,
     "directories": {
       "output": "dist",
       "buildResources": "build"
@@ -122,7 +126,8 @@
     "asar": true,
     "asarUnpack": [
       "**/*.node",
-      "**/node_modules/electron-updater/**/*"
+      "**/node_modules/electron-updater/**/*",
+      "**/node_modules/better-sqlite3/**/*"
     ],
     "fileAssociations": [
       {

@@ -332,6 +332,15 @@ interface RequestLogFilter {
   status?: 'success' | 'error'
   providerId?: string
   limit?: number
+  page?: number
+  pageSize?: number
+}
+
+interface PaginatedRequestLogs {
+  logs: RequestLogEntry[]
+  total: number
+  page: number
+  pageSize: number
 }
 
 interface RequestLogStats {
@@ -352,7 +361,7 @@ interface RequestLogTrend {
 }
 
 const requestLogsAPI = {
-  get: (filter?: RequestLogFilter): Promise<RequestLogEntry[]> => 
+  get: (filter?: RequestLogFilter): Promise<RequestLogEntry[] | PaginatedRequestLogs> => 
     ipcRenderer.invoke(IpcChannels.REQUEST_LOGS_GET, filter),
   
   getById: (id: string): Promise<RequestLogEntry | undefined> => 

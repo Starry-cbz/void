@@ -31,6 +31,7 @@ import { TerminalCapability } from '../../../../platform/terminal/common/capabil
 import { buildEnhancedContext, DEFAULT_DIFF_CACHE_TTL_MS, DEFAULT_MAX_RECENT_FILES, DiffSummary, DiffSummaryCache, RecentFileEntry, RecentFilesTracker } from '../common/enhancedContext.js';
 import { IVoidSCMService } from '../common/voidSCMTypes.js';
 import { ISkillsService } from './skillsService.js';
+import { ISkillsService as ISkillsServiceInterface } from '../common/skillsServiceTypes.js';
 
 export const EMPTY_MESSAGE = '(empty message)'
 
@@ -607,7 +608,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		@ISCMService private readonly scmService: ISCMService,
 		@ITerminalSnippetService private readonly terminalSnippetService: ITerminalSnippetService,
 		@IMainProcessService mainProcessService: IMainProcessService,
-		@ISkillsService private readonly skillsService: ISkillsServiceType,
+		@ISkillsService private readonly skillsService: ISkillsServiceInterface,
 	) {
 		super()
 		this.voidSCM = ProxyChannel.toService<IVoidSCMService>(mainProcessService.getChannel('void-channel-scm'))
